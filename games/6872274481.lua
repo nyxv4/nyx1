@@ -8812,8 +8812,8 @@ run(function()
 						local waitFor = (kaLastSrv + target) - (s0 + (os.clock() - t0))
 						if waitFor > 0.3 then break end
 						if waitFor > 0 then
-							local w0 = os.clock()
-							repeat until os.clock() - w0 >= waitFor or not (Killaura and Killaura.Enabled)
+							-- Yield instead of spinning: a non-yielding loop freezes the whole client.
+							task.wait(waitFor)
 						end
 						if workspace:GetServerTimeNow() - kaLastSrv < target then break end
 					until false
@@ -9688,8 +9688,8 @@ run(function()
 						local waitFor = (GrandLastSrv + target) - (s0 + (os.clock() - t0))
 						if waitFor > 0.3 then break end
 						if waitFor > 0 then
-							local w0 = os.clock()
-							repeat until os.clock() - w0 >= waitFor or not (GrandKillaura and GrandKillaura.Enabled)
+							-- Yield instead of spinning: a non-yielding loop freezes the whole client.
+							task.wait(waitFor)
 						end
 						if workspace:GetServerTimeNow() - GrandLastSrv < target then break end
 					until false
