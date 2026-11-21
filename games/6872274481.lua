@@ -196,6 +196,7 @@ local TrapDisabler
 local TrapSnap, TrapMine, TrapTeleport, TrapPortal = {}, {}, {}, {}
 local AntiFallPart
 local bedwars, remotes, sides, oldinvrender, oldSwing = {}, {}, {}, {}, {}
+local GrandKillaura, GrandTargets, GrandSwingRange, GrandAttackRange, GrandSwing, GrandUpdateRate, GrandAngle, GrandMaxTargets, GrandMouse, GrandGUI, GrandBoxSwingColor, GrandBoxAttackColor, GrandParticleTexture, GrandParticleColor1, GrandParticleColor2, GrandParticleSize, GrandFace, GrandAnimation, GrandAnimationMode, GrandAnimationSpeed, GrandAnimationTween, GrandLimit, GrandLegit, GrandAttackCheck, GrandParticles, GrandBoxes, GrandAttacking, GrandLastSrv, GrandLastAnimTime, GrandFire, GrandAnimTween, GrandArmC0, GrandAnimActive, GRAND_HIT_PERIOD, grandAnimNames
 
 local function getReach(tool)
 	local itemMeta = tool and bedwars.ItemMeta and bedwars.ItemMeta[tool.Name]
@@ -9470,35 +9471,11 @@ run(function()
 	end)
 
 	-- GrandKillaura: ported from upstream, fully independent state from Killaura
-	local GrandKillaura
-	local GrandTargets
-	local GrandSwingRange
-	local GrandAttackRange
-	local GrandSwing
-	local GrandUpdateRate
-	local GrandAngle
-	local GrandMaxTargets
-	local GrandMouse
-	local GrandGUI
-	local GrandBoxSwingColor
-	local GrandBoxAttackColor
-	local GrandParticleTexture
-	local GrandParticleColor1
-	local GrandParticleColor2
-	local GrandParticleSize
-	local GrandFace
-	local GrandAnimation
-	local GrandAnimationMode
-	local GrandAnimationSpeed
-	local GrandAnimationTween
-	local GrandLimit
-	local GrandLegit
-	local GrandAttackCheck
-	local GrandParticles, GrandBoxes = {}, {}
-	local GrandAttacking = false
-	local GrandLastSrv = 0
-	local GrandLastAnimTime = 0
-	local GrandFire = {
+	GrandParticles, GrandBoxes = {}, {}
+	GrandAttacking = false
+	GrandLastSrv = 0
+	GrandLastAnimTime = 0
+	GrandFire = {
 		Period = 0.29583333333333334,
 		GraceUntil = 0,
 		AcqTime = 0,
@@ -9506,10 +9483,8 @@ run(function()
 		ItemUntil = 0,
 		LastSword = nil
 	}
-	local GrandAnimTween
-	local GrandArmC0
-	local GrandAnimActive = false
-	local GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
+	GrandAnimActive = false
+	GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
 
 	function GrandFire.projectileInHand()
 		local live = liveHandTool()
@@ -10170,7 +10145,7 @@ run(function()
 			end
 		end
 	})
-	local grandAnimNames = {}
+	grandAnimNames = {}
 	for i in anims do
 		table.insert(grandAnimNames, i)
 	end
