@@ -303,8 +303,11 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
       }
       const result = await callWorker('/api/admin/createkeys', { amount: 1, tier });
       const key = result.keys[0];
+      const intro = roleName === 'trial'
+        ? 'Enjoy your trial!'
+        : 'Thanks for your purchase!';
       await newMember.send([
-        'Thanks for your purchase!',
+        intro,
         '',
         `Your NYX key: \`${key}\``,
         '',
