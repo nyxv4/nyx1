@@ -209,6 +209,13 @@ async function handleModal(interaction) {
 }
 
 async function handleGetScript(interaction) {
+  const member = interaction.guild
+    ? await interaction.guild.members.fetch(interaction.user.id).catch(() => null)
+    : null;
+  const allowed = member && member.roles.cache.some((role) => SCRIPT_ROLE_NAMES.has(role.name.toLowerCase()));
+  if (!allowed) {
+    return interaction.editReply('The script is only available to buyers and trial members. Ask an admin for a role.');
+  }
   const record = await fetchOwnKey(interaction.user.id);
   if (!record) return interaction.editReply('No key is linked to your Discord account. Redeem one with `/redeem` first.');
   if (!['redeemed', 'active'].includes(record.status) || isExpired(record.expires)) {
@@ -280,6 +287,8 @@ const BUYER_ROLE_TIERS = {
   'buyer (permanent)': 'lifetime',
   'trial': '1d',
 };
+
+const SCRIPT_ROLE_NAMES = new Set(Object.keys(BUYER_ROLE_TIERS));
 
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   try {
