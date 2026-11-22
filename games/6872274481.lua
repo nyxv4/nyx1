@@ -842,6 +842,14 @@ local function HasSeed(character)
     return character:FindFirstChild("Seed", true) ~= nil
 end
 
+local kitOrder = {
+	hannah = 5,
+	spirit_assassin = 4,
+	dasher = 3,
+	jade = 2,
+	regent = 1
+}
+
 local sortmethods = {
 	Damage = function(a, b)
 		if not a.Entity or not a.Entity.Character then return false end
@@ -902,6 +910,22 @@ local sortmethods = {
 			return worldA < worldB
 		end
 		return distA < distB
+	end,
+	Kit = function(a, b)
+		if not a.Entity or not a.Entity.Player then return false end
+		if not b.Entity or not b.Entity.Player then return true end
+		return (kitOrder[a.Entity.Player:GetAttribute('PlayingAsKits')] or 0) > (kitOrder[b.Entity.Player:GetAttribute('PlayingAsKits')] or 0)
+	end,
+	Mouse = function(a, b)
+		if not a.Entity or not a.Entity.RootPart then return false end
+		if not b.Entity or not b.Entity.RootPart then return true end
+		local mouse = lplr:GetMouse()
+		local origin = Vector2.new(mouse.X, mouse.Y)
+		local posA, visA = gameCamera:WorldToViewportPoint(a.Entity.RootPart.Position)
+		local posB, visB = gameCamera:WorldToViewportPoint(b.Entity.RootPart.Position)
+		local distA = visA and (Vector2.new(posA.X, posA.Y) - origin).Magnitude or math.huge
+		local distB = visB and (Vector2.new(posB.X, posB.Y) - origin).Magnitude or math.huge
+		return (distA == distA and distA or math.huge) < (distB == distB and distB or math.huge)
 	end,
 	Forest = function(a, b)
 		if not a.Entity then return false end
@@ -4506,6 +4530,10 @@ run(function()
 
 	local function isDisguised(ent)
 		if not ent.Player then return false end
+		local controller = bedwars.BlockDisguiseController
+		if controller and controller.getPlayerBlockModel then
+			return controller:getPlayerBlockModel(ent.Player) ~= nil
+		end
 		return workspace:FindFirstChild('DisguisedPlayerBlock_' .. ent.Player.UserId) ~= nil
 	end
 
@@ -4771,7 +4799,7 @@ run(function()
 				projectileAim.Install()
 			end
 		end,
-		Tooltip = 'Redirects only the projectile values sent to the server, so enemies get hit while your shot flies exactly where you aimed on your own screen'
+		Tooltip = 'Redirects only the projectile values sent to the server, so enemies get hit while your shot flies exactly where you aimed on your own screen. Without native hooks (Solara, Xeno) the shot is turned at release instead and the trajectory preview is left untouched'
 	})
 
 	Targets = SilentAim:CreateTargets({
@@ -4782,17 +4810,12 @@ run(function()
 		Name = 'Part',
 		List = {'RootPart', 'Head', 'Torso', 'Left arm', 'Right arm', 'Left leg', 'Right leg', 'Random', 'Dynamic', 'Closest'}
 	})
-	local sortList = {'Damage', 'Distance'}
-	for _, v in getSortList({'Threat', 'Health', 'Angle', 'Cursor'}) do
-		if not table.find(sortList, v) then
-			table.insert(sortList, v)
-		end
-	end
 	Sort = SilentAim:CreateDropdown({
 		Name = 'Target Mode',
-		List = sortList,
+		List = {'Damage', 'Distance', 'Angle', 'Health', 'Kit', 'Mouse', 'Threat'},
 		Default = 'Distance'
 	})
+	Sort:SetValue('Distance')
 	PredictionScale = SilentAim:CreateSlider({
 		Name = 'Prediction',
 		Min = 0.1,
