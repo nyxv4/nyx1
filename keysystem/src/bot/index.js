@@ -286,6 +286,41 @@ async function postManagedPanel(client, channelId, stateFile, payload, label) {
   }
 }
 
+async function ensureGiveawayChannel(client) {
+  for (const guild of client.guilds.cache.values()) {
+    try {
+      const existing = guild.channels.cache.find(
+        (channel) => channel.type === ChannelType.GuildText && channel.name.toLowerCase() === 'giveaway',
+      );
+      if (existing) continue;
+      const category = guild.channels.cache.find(
+        (channel) => channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === 'info',
+      );
+      const channel = await guild.channels.create({
+        name: 'giveaway',
+        type: ChannelType.GuildText,
+        parent: category ? category.id : undefined,
+        topic: 'Giveaways — view only',
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone.id,
+            allow: [PermissionFlagsBits.ViewChannel],
+            deny: [PermissionFlagsBits.SendMessages],
+          },
+          {
+            id: client.user.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+          },
+        ],
+      });
+      await channel.send('**giveaways**\n giveaways will be posted here.').catch(() => {});
+      console.log(`Created giveaway channel in ${guild.name}.`);
+    } catch (error) {
+      console.error('Giveaway channel setup failed:', error.message);
+    }
+  }
+}
+
 async function handleTicketOpen(interaction, type = 'general') {
   const guild = interaction.guild;
   const base = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
@@ -494,6 +529,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await postOrUpdatePanel(readyClient);
   await postManagedPanel(readyClient, TICKET_PANEL_CHANNEL_ID, ticketPanelStatePath, buildPurchasePanel(), 'Purchase panel');
   await postManagedPanel(readyClient, SUPPORT_PANEL_CHANNEL_ID, supportPanelStatePath, buildSupportPanel(), 'Support panel');
+  await ensureGiveawayChannel(readyClient);
   await sweepJoinRoles().catch((error) => console.error('Join-role backfill failed:', error.message));
 });
 
