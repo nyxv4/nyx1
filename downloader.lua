@@ -3,10 +3,33 @@ local NYX_HWID = getgenv and getgenv().NYX_HWID or nil
 if type(NYX_KEY) ~= 'string' or type(NYX_HWID) ~= 'string' then
 	error('NYX requires a valid key. Get your loader from the Discord server.', 0)
 end
+local function urlEncode(s)
+	return (tostring(s):gsub('([^%w%-_.~])', function(c) return string.format('%%%02X', c:byte()) end))
+end
+local executor = 'unknown'
+pcall(function() executor = getexecutorname() or executor end)
+local username = 'unknown'
+pcall(function() username = game:GetService('Players').LocalPlayer.Name end)
+local device = 'unknown'
+pcall(function()
+	local uis = game:GetService('UserInputService')
+	if uis.GamepadEnabled and not uis.KeyboardEnabled then device = 'Console'
+	elseif uis.TouchEnabled and not uis.KeyboardEnabled then device = 'Mobile'
+	else device = 'PC' end
+end)
+local fps = 'unknown'
+pcall(function() fps = tostring(math.floor(workspace:GetRealPhysicsFPS())) end)
+local verifyUrl = 'https://script-whitelist.nyx178bedwars.workers.dev/api/verify?key=' .. NYX_KEY .. '&hwid=' .. NYX_HWID
+	.. '&executor=' .. urlEncode(executor)
+	.. '&username=' .. urlEncode(username)
+	.. '&place_id=' .. tostring(game.PlaceId)
+	.. '&game_name=' .. urlEncode(game.Name)
+	.. '&device=' .. device
+	.. '&fps=' .. fps
 local authOk = false
 for _ = 1, 3 do
 	local suc, res = pcall(function()
-		return game:HttpGet('https://script-whitelist.nyx178bedwars.workers.dev/api/verify?key=' .. NYX_KEY .. '&hwid=' .. NYX_HWID, true)
+		return game:HttpGet(verifyUrl, true)
 	end)
 	if suc and type(res) == 'string' and res:find('"ok":true', 1, true) then
 		authOk = true
@@ -17,41 +40,6 @@ end
 if not authOk then
 	error('NYX key is invalid, expired, or revoked. Re-check it in the Discord server.', 0)
 end
-pcall(function()
-	local executor = 'unknown'
-	pcall(function() executor = getexecutorname() or executor end)
-	local username = 'unknown'
-	pcall(function() username = game:GetService('Players').LocalPlayer.Name end)
-	local device = 'unknown'
-	pcall(function()
-		local uis = game:GetService('UserInputService')
-		if uis.GamepadEnabled and not uis.KeyboardEnabled then device = 'Console'
-		elseif uis.TouchEnabled and not uis.KeyboardEnabled then device = 'Mobile'
-		else device = 'PC' end
-	end)
-	local fps = 'unknown'
-	pcall(function() fps = tostring(math.floor(workspace:GetRealPhysicsFPS())) end)
-	local clean = function(s) return tostring(s):gsub('[%c"\\]', '') end
-	local body = '{"key":"' .. NYX_KEY .. '","hwid":"' .. NYX_HWID
-		.. '","executor":"' .. clean(executor)
-		.. '","username":"' .. clean(username)
-		.. '","place_id":"' .. tostring(game.PlaceId)
-		.. '","game_name":"' .. clean(game.Name)
-		.. '","device":"' .. device
-		.. '","fps":"' .. fps .. '"}'
-	local url = 'https://script-whitelist.nyx178bedwars.workers.dev/api/telemetry'
-	local posted = pcall(function() game:HttpPost(url, body, 'application/json') end)
-	if not posted then
-		for _, fn in ipairs({ request, http_request, syn and syn.request, http and http.request }) do
-			if type(fn) == 'function' then
-				local suc = pcall(function()
-					fn({ Url = url, Method = 'POST', Headers = { ['Content-Type'] = 'application/json' }, Body = body })
-				end)
-				if suc then break end
-			end
-		end
-	end
-end)
 getgenv().NYX_KEY = nil
 getgenv().NYX_HWID = nil
 

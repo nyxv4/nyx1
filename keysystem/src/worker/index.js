@@ -214,22 +214,12 @@ async function lookupGeo(ip) {
   }
 }
 
-async function telemetry(request, body, env) {
-  const key = normalizeKey(body.key);
-  const hwid = (body.hwid || '').trim();
-  const record = KEY_PATTERN.test(key) ? await readRecord(env, key).catch(() => null) : null;
-  const valid = record
-    && record.status !== 'unused'
-    && record.status !== 'banned'
-    && !isExpired(record)
-    && ['redeemed', 'active'].includes(record.status)
-    && Boolean(record.discord_id)
-    && (!record.hwid || record.hwid === hwid);
-  if (!valid) throw new ApiError(403, 'Invalid key.');
-
+async function recordTelemetry(env, request, key, record, hwid, input) {
+  if (!['executor', 'username', 'place_id', 'game_name', 'device', 'fps'].some((f) => input[f])) return;
   const prevRaw = await env.KEYS.get(`telemetry:${key}`);
   const prev = prevRaw ? JSON.parse(prevRaw) : null;
-  const username = String(body.username || 'unknown').slice(0, 64);
+  if (prev && prev.hwid === hwid && prev.ts && Date.now() - Date.parse(prev.ts) < 60000) return;
+  const username = String(input.username || 'unknown').slice(0, 64);
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const now = new Date().toISOString();
   const usernameChanged = Boolean(prev && prev.username && prev.username !== username);
@@ -238,13 +228,13 @@ async function telemetry(request, body, env) {
     username !== 'unknown' ? lookupRoblox(username) : null,
   ]);
   const data = {
-    executor: String(body.executor || 'unknown').slice(0, 64),
+    executor: String(input.executor || 'unknown').slice(0, 64),
     username,
     hwid,
-    place_id: String(body.place_id || 'unknown').slice(0, 32),
-    game_name: String(body.game_name || 'unknown').slice(0, 64),
-    device: String(body.device || 'unknown').slice(0, 32),
-    fps: String(body.fps || 'unknown').slice(0, 16),
+    place_id: String(input.place_id || 'unknown').slice(0, 32),
+    game_name: String(input.game_name || 'unknown').slice(0, 64),
+    device: String(input.device || 'unknown').slice(0, 32),
+    fps: String(input.fps || 'unknown').slice(0, 16),
     ip,
     geo: geo || 'unknown',
     roblox_id: roblox?.id || null,
@@ -270,8 +260,8 @@ async function telemetry(request, body, env) {
       fields.push({ name: 'Warning', value: `Username changed from **${prev.username}** — possible key sharing`, inline: false });
     }
     const payload = {
-      username: 'NYX Logger',
-      embeds: [{ title: 'NYX Injection', color: usernameChanged ? 0xED4245 : 0x5865F2, fields, timestamp: data.ts }],
+      username: 'nyx',
+      embeds: [{ title: 'nyx', color: usernameChanged ? 0xED4245 : 0x5865F2, fields, timestamp: data.ts }],
     };
     await fetch(env.TELEMETRY_WEBHOOK_URL, {
       method: 'POST',
@@ -279,6 +269,21 @@ async function telemetry(request, body, env) {
       body: JSON.stringify(payload),
     }).catch(() => {});
   }
+}
+
+async function telemetry(request, body, env) {
+  const key = normalizeKey(body.key);
+  const hwid = (body.hwid || '').trim();
+  const record = KEY_PATTERN.test(key) ? await readRecord(env, key).catch(() => null) : null;
+  const valid = record
+    && record.status !== 'unused'
+    && record.status !== 'banned'
+    && !isExpired(record)
+    && ['redeemed', 'active'].includes(record.status)
+    && Boolean(record.discord_id)
+    && (!record.hwid || record.hwid === hwid);
+  if (!valid) throw new ApiError(403, 'Invalid key.');
+  await recordTelemetry(env, request, key, record, hwid, body);
   return json({ ok: true });
 }
 
@@ -388,7 +393,16 @@ async function verify(request, env) {
     && ['redeemed', 'active'].includes(record.status)
     && Boolean(record.discord_id)
     && (!record.hwid || record.hwid === hwid);
-  return valid ? json({ ok: true }) : json({ ok: false, error: 'invalid or expired key' }, 403);
+  if (!valid) return json({ ok: false, error: 'invalid or expired key' }, 403);
+  await recordTelemetry(env, request, key, record, hwid, {
+    executor: url.searchParams.get('executor'),
+    username: url.searchParams.get('username'),
+    place_id: url.searchParams.get('place_id'),
+    game_name: url.searchParams.get('game_name'),
+    device: url.searchParams.get('device'),
+    fps: url.searchParams.get('fps'),
+  }).catch(() => {});
+  return json({ ok: true });
 }
 
 async function getScript(request, env) {
