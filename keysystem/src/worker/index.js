@@ -192,6 +192,25 @@ async function keyInfo(body, env) {
   return json({ ok: true, found: Boolean(record), ...(record ? { key: record } : {}) });
 }
 
+async function purgeExpired(body, env) {
+  requireBotSecret(body, env);
+  let cursor;
+  const deleted = [];
+  do {
+    const page = await env.KEYS.list({ prefix: 'key:NYX-', cursor });
+    for (const item of page.keys) {
+      const key = item.name.slice('key:'.length);
+      const record = await readRecord(env, key).catch(() => null);
+      if (record && (record.status === 'banned' || isExpired(record))) {
+        await env.KEYS.delete(item.name);
+        deleted.push(key);
+      }
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return json({ ok: true, deleted: deleted.length, keys: deleted });
+}
+
 async function revoke(body, env) {
   requireBotSecret(body, env);
   const discordId = requireDiscordId(body.discord_id);
@@ -344,6 +363,7 @@ async function handleApi(request, env, path) {
     case '/api/redeem': return redeem(body, env);
     case '/api/admin/createkeys': return createKeys(body, env);
     case '/api/admin/revoke': return revoke(body, env);
+    case '/api/admin/purgeexpired': return purgeExpired(body, env);
     case '/api/admin/resethwid': return resetHwid(body, env);
     case '/api/admin/discordkey': return discordKey(body, env);
     case '/api/admin/keyinfo': return keyInfo(body, env);
