@@ -12,6 +12,7 @@ import {
   PermissionFlagsBits,
   REST,
   Routes,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
@@ -170,51 +171,99 @@ async function postOrUpdatePanel(client) {
   }
 }
 
-// ---- ticket tool ----
+// ---- ticket tool + dropdown panels ----
 
-const TICKET_PANEL_CHANNEL_ID = '1574039296258736210';
-const ticketPanelStatePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.ticket-panel.json');
+const TICKET_PANEL_CHANNEL_ID = '1574039296258736210'; // #purchase
+const SUPPORT_PANEL_CHANNEL_ID = '1574044470041776319'; // #support
+const stateDir = path.dirname(fileURLToPath(import.meta.url));
+const ticketPanelStatePath = path.join(stateDir, '..', '.ticket-panel.json');
+const supportPanelStatePath = path.join(stateDir, '..', '.support-panel.json');
 
-function ticketChannelName(user) {
+const PURCHASE_PLANS = [
+  { label: '1 Day Trial', value: '1d', description: '24 hour access' },
+  { label: '7 Days', value: '7d', description: 'Weekly access' },
+  { label: '30 Days', value: '30d', description: 'Monthly access' },
+  { label: 'Lifetime', value: 'lifetime', description: 'Never expires' },
+];
+
+const TICKET_TYPES = [
+  { label: 'General Support', value: 'general', description: 'Questions and help' },
+  { label: 'Bug Report', value: 'bug', description: 'Report a bug' },
+  { label: 'Key Issue', value: 'key', description: 'Key, HWID or loader problems' },
+  { label: 'Purchase Help', value: 'purchase', description: 'Buying or payment questions' },
+  { label: 'Other', value: 'other', description: 'Anything else' },
+];
+
+function ticketChannelName(user, type) {
   const base = user.username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
-  return `ticket-${base}`.slice(0, 90);
+  return `ticket-${base}-${type}`.slice(0, 90);
 }
 
-async function postTicketPanel(client) {
+function buildPurchasePanel() {
+  return {
+    content: '**purchase nyx**\nselect a plan below, or open a ticket and staff will help you buy.',
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('nyx:plan')
+          .setPlaceholder('Select a plan')
+          .addOptions(PURCHASE_PLANS),
+      ),
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('nyx:tickettype')
+          .setPlaceholder('Open a ticket')
+          .addOptions(TICKET_TYPES),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('nyx:ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Primary),
+      ),
+    ],
+  };
+}
+
+function buildSupportPanel() {
+  return {
+    content: '**support**\nselect a topic below to open a private ticket with staff.',
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('nyx:support')
+          .setPlaceholder('What do you need help with?')
+          .addOptions(TICKET_TYPES),
+      ),
+    ],
+  };
+}
+
+async function postManagedPanel(client, channelId, stateFile, payload, label) {
   try {
-    const channel = await client.channels.fetch(TICKET_PANEL_CHANNEL_ID);
+    const channel = await client.channels.fetch(channelId);
     if (!channel || !channel.isTextBased()) return;
     let state = null;
-    try { state = JSON.parse(fs.readFileSync(ticketPanelStatePath, 'utf8')); } catch {}
-    const payload = {
-      content: '**need help?**\nopen a ticket below and staff will assist you.',
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('nyx:ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Primary),
-        ),
-      ],
-    };
+    try { state = JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch {}
     if (state?.channelId === channel.id && state?.messageId) {
       try {
         await (await channel.messages.fetch(state.messageId)).edit(payload);
-        console.log('Ticket panel updated.');
+        console.log(`${label} updated.`);
         return;
       } catch {}
     }
     const msg = await channel.send(payload);
-    fs.writeFileSync(ticketPanelStatePath, JSON.stringify({ channelId: channel.id, messageId: msg.id }));
-    console.log('Ticket panel posted.');
+    fs.writeFileSync(stateFile, JSON.stringify({ channelId: channel.id, messageId: msg.id }));
+    console.log(`${label} posted.`);
   } catch (error) {
-    console.error('Ticket panel failed:', error.message);
+    console.error(`${label} failed:`, error.message);
   }
 }
 
-async function handleTicketOpen(interaction) {
+async function handleTicketOpen(interaction, type = 'general') {
   const guild = interaction.guild;
-  const name = ticketChannelName(interaction.user);
-  const existing = guild.channels.cache.find((channel) => channel.name === name);
+  const base = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
+  const existing = guild.channels.cache.find((channel) => channel.name?.startsWith(`ticket-${base}-`));
   if (existing) return interaction.editReply(`You already have an open ticket: ${existing}`);
 
+  const name = ticketChannelName(interaction.user, type);
   let category = guild.channels.cache.find(
     (channel) => channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === 'tickets',
   );
@@ -226,6 +275,7 @@ async function handleTicketOpen(interaction) {
     name,
     type: ChannelType.GuildText,
     parent: category.id,
+    topic: `Ticket type: ${type}`,
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
@@ -243,7 +293,7 @@ async function handleTicketOpen(interaction) {
   });
 
   await channel.send({
-    content: `Hey ${interaction.user}, staff will be with you shortly.\nClick **Close Ticket** when you're done.`,
+    content: `Hey ${interaction.user}, staff will be with you shortly.\nTicket type: **${type}**\nClick **Close Ticket** when you're done.`,
     components: [
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('nyx:close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger),
@@ -251,6 +301,28 @@ async function handleTicketOpen(interaction) {
     ],
   });
   return interaction.editReply(`Ticket created: ${channel}`);
+}
+
+async function handleSelect(interaction) {
+  const id = interaction.customId;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    if (id === 'nyx:plan') {
+      const plan = PURCHASE_PLANS.find((option) => option.value === interaction.values[0]);
+      return interaction.editReply(
+        `You selected **${plan ? plan.label : interaction.values[0]}**.\nTo purchase, open a ticket and staff will send you the payment details.`,
+      );
+    }
+    if (id === 'nyx:support' || id === 'nyx:tickettype') {
+      const type = TICKET_TYPES.some((option) => option.value === interaction.values[0])
+        ? interaction.values[0]
+        : 'general';
+      return await handleTicketOpen(interaction, type);
+    }
+  } catch (error) {
+    console.error(`Select ${id} failed:`, error.message);
+    return interaction.editReply('Could not complete that. Please try again.');
+  }
 }
 
 async function handleTicketClose(interaction) {
@@ -376,7 +448,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
   console.log(`NYX bot online as ${readyClient.user.tag}.`);
   await postOrUpdatePanel(readyClient);
-  await postTicketPanel(readyClient);
+  await postManagedPanel(readyClient, TICKET_PANEL_CHANNEL_ID, ticketPanelStatePath, buildPurchasePanel(), 'Purchase panel');
+  await postManagedPanel(readyClient, SUPPORT_PANEL_CHANNEL_ID, supportPanelStatePath, buildSupportPanel(), 'Support panel');
 });
 
 const BUYER_ROLE_TIERS = {
@@ -469,6 +542,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return await handleButton(interaction);
     } catch (error) {
       console.error('Button interaction failed:', error.message);
+    }
+    return;
+  }
+  if (interaction.isStringSelectMenu()) {
+    try {
+      return await handleSelect(interaction);
+    } catch (error) {
+      console.error('Select interaction failed:', error.message);
     }
     return;
   }
