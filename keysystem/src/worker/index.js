@@ -163,7 +163,19 @@ async function redeem(body, env) {
   if (existingKey && existingKey !== key) {
     const existingRecord = await readRecord(env, existingKey);
     if (existingRecord && existingRecord.status !== 'banned' && !isExpired(existingRecord)) {
-      throw new ApiError(409, 'Your Discord account already has an unexpired key.');
+      const addDays = TIERS[record.tier];
+      if (addDays === null || !existingRecord.expires) {
+        existingRecord.expires = null;
+      } else {
+        const base = Date.parse(existingRecord.expires);
+        existingRecord.expires = new Date(base + addDays * 24 * 60 * 60 * 1000).toISOString();
+      }
+      await writeRecord(env, existingRecord);
+      record.status = 'merged';
+      record.discord_id = discordId;
+      record.expires = null;
+      await writeRecord(env, record);
+      return json({ ok: true, stacked: true, key: existingRecord, merged_key: record.key });
     }
   }
 

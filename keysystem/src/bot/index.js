@@ -113,6 +113,9 @@ async function fetchOwnKey(discordId) {
 
 async function redeemKey(discordId, key) {
   const result = await callWorker('/api/redeem', { key: key.trim().toUpperCase(), discord_id: discordId });
+  if (result.stacked) {
+    return `Key stacked! ${result.key.tier === 'lifetime' ? 'Your key is now **lifetime**.' : `New expiry: **${dateText(result.key.expires)}**.`} Press **Get Script** below for your loader.`;
+  }
   return result.already_redeemed
     ? 'That key is already linked to your Discord account.'
     : `Key redeemed. Tier: **${result.key.tier}**. Press **Get Script** below for your loader.`;
