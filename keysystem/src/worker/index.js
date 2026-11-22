@@ -191,6 +191,20 @@ async function keyInfo(body, env) {
   return json({ ok: true, found: Boolean(record), ...(record ? { key: record } : {}) });
 }
 
+async function revoke(body, env) {
+  requireBotSecret(body, env);
+  const discordId = requireDiscordId(body.discord_id);
+  const key = await env.KEYS.get(discordIndexKey(discordId));
+  if (!key) return json({ ok: true, found: false });
+  const record = await readRecord(env, key);
+  if (record) {
+    record.status = 'banned';
+    await writeRecord(env, record);
+  }
+  await env.KEYS.delete(discordIndexKey(discordId));
+  return json({ ok: true, found: true, key: record ? record.key : null });
+}
+
 async function resetHwid(body, env) {
   requireBotSecret(body, env);
   const discordId = requireDiscordId(body.discord_id);
@@ -245,9 +259,17 @@ async function getScript(request, env) {
   if (!record.discord_id) return loaderError('key has not been redeemed');
 
   if (record.hwid && record.hwid !== hwid) return loaderError('HWID mismatch');
+  let needsWrite = false;
   if (!record.hwid) {
     record.hwid = hwid;
     record.status = 'active';
+    needsWrite = true;
+  }
+  if (!record.injected_at) {
+    record.injected_at = new Date().toISOString();
+    needsWrite = true;
+  }
+  if (needsWrite) {
     try {
       await writeRecord(env, record);
     } catch {
@@ -287,6 +309,7 @@ async function handleApi(request, env, path) {
   switch (path) {
     case '/api/redeem': return redeem(body, env);
     case '/api/admin/createkeys': return createKeys(body, env);
+    case '/api/admin/revoke': return revoke(body, env);
     case '/api/admin/resethwid': return resetHwid(body, env);
     case '/api/admin/discordkey': return discordKey(body, env);
     case '/api/admin/keyinfo': return keyInfo(body, env);

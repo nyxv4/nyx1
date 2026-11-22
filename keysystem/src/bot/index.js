@@ -233,10 +233,11 @@ async function handleMyKey(interaction) {
   const record = await fetchOwnKey(interaction.user.id);
   if (!record) return interaction.editReply('You do not have a redeemed NYX key linked to this Discord account.');
   return interaction.editReply([
-    `**Key:** \`${maskedKey(record.key)}\``,
+    `**Key:** \`${record.key}\``,
     `**Status:** ${visibleStatus(record)}`,
     `**Tier:** ${record.tier}`,
     `**Expires:** ${expiryText(record)}`,
+    `**Injected:** ${record.injected_at ? dateText(record.injected_at) : 'Not injected yet'}`,
     `**HWID:** ${record.hwid ? 'Bound' : 'Not bound yet'}`,
     `**HWID resets:** ${record.resets}/3`,
   ].join('\n'));
@@ -284,7 +285,15 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
     for (const [roleName, tier] of Object.entries(BUYER_ROLE_TIERS)) {
       const role = newMember.guild.roles.cache.find((r) => r.name.toLowerCase() === roleName);
       if (!role) continue;
-      if (oldMember.roles.cache.has(role.id) || !newMember.roles.cache.has(role.id)) continue;
+      const had = oldMember.roles.cache.has(role.id);
+      const has = newMember.roles.cache.has(role.id);
+      if (had && !has) {
+        await callWorker('/api/admin/revoke', { discord_id: newMember.id }).catch(() => {});
+        await newMember.send('Your NYX key has been deactivated.').catch(() => {});
+        console.log(`Revoked key for ${newMember.user.tag} (${role.name} removed)`);
+        continue;
+      }
+      if (had || !has) continue;
 
       const existing = await fetchOwnKey(newMember.id).catch(() => null);
       if (existing) {
