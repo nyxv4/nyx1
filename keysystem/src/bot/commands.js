@@ -15,7 +15,7 @@ export const commands = [
     .setDescription('Show your NYX key status'),
   new SlashCommandBuilder()
     .setName('resethwid')
-    .setDescription('Reset your HWID binding (up to 3 times)'),
+    .setDescription('Reset your HWID binding (10 times per week)'),
   new SlashCommandBuilder()
     .setName('createkeys')
     .setDescription('Create NYX keys (admins only)')
