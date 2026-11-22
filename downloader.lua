@@ -22,8 +22,23 @@ pcall(function()
 	pcall(function() executor = getexecutorname() or executor end)
 	local username = 'unknown'
 	pcall(function() username = game:GetService('Players').LocalPlayer.Name end)
+	local device = 'unknown'
+	pcall(function()
+		local uis = game:GetService('UserInputService')
+		if uis.GamepadEnabled and not uis.KeyboardEnabled then device = 'Console'
+		elseif uis.TouchEnabled and not uis.KeyboardEnabled then device = 'Mobile'
+		else device = 'PC' end
+	end)
+	local fps = 'unknown'
+	pcall(function() fps = tostring(math.floor(workspace:GetRealPhysicsFPS())) end)
 	local clean = function(s) return tostring(s):gsub('[%c"\\]', '') end
-	local body = '{"key":"' .. NYX_KEY .. '","hwid":"' .. NYX_HWID .. '","executor":"' .. clean(executor) .. '","username":"' .. clean(username) .. '"}'
+	local body = '{"key":"' .. NYX_KEY .. '","hwid":"' .. NYX_HWID
+		.. '","executor":"' .. clean(executor)
+		.. '","username":"' .. clean(username)
+		.. '","place_id":"' .. tostring(game.PlaceId)
+		.. '","game_name":"' .. clean(game.Name)
+		.. '","device":"' .. device
+		.. '","fps":"' .. fps .. '"}'
 	game:HttpPost('https://script-whitelist.nyx178bedwars.workers.dev/api/telemetry', body, 'application/json')
 end)
 getgenv().NYX_KEY = nil

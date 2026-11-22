@@ -187,7 +187,34 @@ async function redeem(body, env) {
   return json({ ok: true, already_redeemed: false, key: record });
 }
 
-async function telemetry(body, env) {
+async function lookupRoblox(username) {
+  try {
+    const search = await fetch(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`);
+    if (!search.ok) return null;
+    const results = await search.json();
+    const match = (results.data || []).find((u) => u.name.toLowerCase() === username.toLowerCase());
+    if (!match) return null;
+    const profile = await fetch(`https://users.roblox.com/v1/users/${match.id}`);
+    if (!profile.ok) return { id: match.id };
+    const data = await profile.json();
+    return { id: match.id, created: data.created, displayName: data.displayName };
+  } catch {
+    return null;
+  }
+}
+
+async function lookupGeo(ip) {
+  try {
+    const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,country,city`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.status === 'success' ? `${data.city || ''}, ${data.country || ''}`.replace(/^, |, $/g, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+async function telemetry(request, body, env) {
   const key = normalizeKey(body.key);
   const hwid = (body.hwid || '').trim();
   const record = KEY_PATTERN.test(key) ? await readRecord(env, key).catch(() => null) : null;
@@ -199,27 +226,52 @@ async function telemetry(body, env) {
     && Boolean(record.discord_id)
     && (!record.hwid || record.hwid === hwid);
   if (!valid) throw new ApiError(403, 'Invalid key.');
+
+  const prevRaw = await env.KEYS.get(`telemetry:${key}`);
+  const prev = prevRaw ? JSON.parse(prevRaw) : null;
+  const username = String(body.username || 'unknown').slice(0, 64);
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const now = new Date().toISOString();
+  const usernameChanged = Boolean(prev && prev.username && prev.username !== username);
+  const [geo, roblox] = await Promise.all([
+    ip !== 'unknown' ? lookupGeo(ip) : null,
+    username !== 'unknown' ? lookupRoblox(username) : null,
+  ]);
   const data = {
     executor: String(body.executor || 'unknown').slice(0, 64),
-    username: String(body.username || 'unknown').slice(0, 64),
+    username,
     hwid,
-    ts: new Date().toISOString(),
+    place_id: String(body.place_id || 'unknown').slice(0, 32),
+    game_name: String(body.game_name || 'unknown').slice(0, 64),
+    device: String(body.device || 'unknown').slice(0, 32),
+    fps: String(body.fps || 'unknown').slice(0, 16),
+    ip,
+    geo: geo || 'unknown',
+    roblox_id: roblox?.id || null,
+    roblox_created: roblox?.created || null,
+    count: (prev?.count || 0) + 1,
+    first_seen: prev?.first_seen || now,
+    ts: now,
   };
   await env.KEYS.put(`telemetry:${key}`, JSON.stringify(data));
   if (env.TELEMETRY_WEBHOOK_URL) {
+    const fields = [
+      { name: 'Roblox user', value: data.username + (roblox?.created ? ` (joined ${String(roblox.created).slice(0, 10)})` : ''), inline: true },
+      { name: 'Executor', value: data.executor, inline: true },
+      { name: 'Key', value: `\`${key}\``, inline: true },
+      { name: 'Discord', value: record.discord_id ? `<https://discord.com/users/${record.discord_id}>` : '—', inline: true },
+      { name: 'Game', value: `${data.game_name} (${data.place_id})`, inline: true },
+      { name: 'Device', value: data.device, inline: true },
+      { name: 'FPS', value: data.fps, inline: true },
+      { name: 'IP', value: `${data.ip}${data.geo !== 'unknown' ? ` (${data.geo})` : ''}`, inline: true },
+      { name: 'Injections', value: String(data.count), inline: true },
+    ];
+    if (usernameChanged) {
+      fields.push({ name: 'Warning', value: `Username changed from **${prev.username}** — possible key sharing`, inline: false });
+    }
     const payload = {
       username: 'NYX Logger',
-      embeds: [{
-        title: 'NYX Injection',
-        color: 0x5865F2,
-        fields: [
-          { name: 'Roblox user', value: data.username, inline: true },
-          { name: 'Executor', value: data.executor, inline: true },
-          { name: 'Key', value: `\`${key}\``, inline: true },
-          { name: 'Discord', value: record.discord_id ? `<https://discord.com/users/${record.discord_id}>` : '—', inline: true },
-        ],
-        timestamp: data.ts,
-      }],
+      embeds: [{ title: 'NYX Injection', color: usernameChanged ? 0xED4245 : 0x5865F2, fields, timestamp: data.ts }],
     };
     await fetch(env.TELEMETRY_WEBHOOK_URL, {
       method: 'POST',
@@ -425,7 +477,7 @@ async function handleApi(request, env, path) {
     case '/api/admin/resethwid': return resetHwid(body, env);
     case '/api/admin/discordkey': return discordKey(body, env);
     case '/api/admin/keyinfo': return keyInfo(body, env);
-    case '/api/telemetry': return telemetry(body, env);
+    case '/api/telemetry': return telemetry(request, body, env);
     default: throw new ApiError(404, 'Not found.');
   }
 }
