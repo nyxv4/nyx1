@@ -3,11 +3,13 @@ import {
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   Client,
   Events,
   GatewayIntentBits,
   MessageFlags,
   ModalBuilder,
+  PermissionFlagsBits,
   REST,
   Routes,
   TextInputBuilder,
@@ -168,6 +170,98 @@ async function postOrUpdatePanel(client) {
   }
 }
 
+// ---- ticket tool ----
+
+const TICKET_PANEL_CHANNEL_ID = '1574039296258736210';
+const ticketPanelStatePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.ticket-panel.json');
+
+function ticketChannelName(user) {
+  const base = user.username.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
+  return `ticket-${base}`.slice(0, 90);
+}
+
+async function postTicketPanel(client) {
+  try {
+    const channel = await client.channels.fetch(TICKET_PANEL_CHANNEL_ID);
+    if (!channel || !channel.isTextBased()) return;
+    let state = null;
+    try { state = JSON.parse(fs.readFileSync(ticketPanelStatePath, 'utf8')); } catch {}
+    const payload = {
+      content: '**need help?**\nopen a ticket below and staff will assist you.',
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('nyx:ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Primary),
+        ),
+      ],
+    };
+    if (state?.channelId === channel.id && state?.messageId) {
+      try {
+        await (await channel.messages.fetch(state.messageId)).edit(payload);
+        console.log('Ticket panel updated.');
+        return;
+      } catch {}
+    }
+    const msg = await channel.send(payload);
+    fs.writeFileSync(ticketPanelStatePath, JSON.stringify({ channelId: channel.id, messageId: msg.id }));
+    console.log('Ticket panel posted.');
+  } catch (error) {
+    console.error('Ticket panel failed:', error.message);
+  }
+}
+
+async function handleTicketOpen(interaction) {
+  const guild = interaction.guild;
+  const name = ticketChannelName(interaction.user);
+  const existing = guild.channels.cache.find((channel) => channel.name === name);
+  if (existing) return interaction.editReply(`You already have an open ticket: ${existing}`);
+
+  let category = guild.channels.cache.find(
+    (channel) => channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === 'tickets',
+  );
+  if (!category) {
+    category = await guild.channels.create({ name: 'Tickets', type: ChannelType.GuildCategory });
+  }
+
+  const channel = await guild.channels.create({
+    name,
+    type: ChannelType.GuildText,
+    parent: category.id,
+    permissionOverwrites: [
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
+        ],
+      },
+      { id: client.user.id, allow: [PermissionFlagsBits.Administrator] },
+    ],
+  });
+
+  await channel.send({
+    content: `Hey ${interaction.user}, staff will be with you shortly.\nClick **Close Ticket** when you're done.`,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('nyx:close_ticket').setLabel('Close Ticket').setStyle(ButtonStyle.Danger),
+      ),
+    ],
+  });
+  return interaction.editReply(`Ticket created: ${channel}`);
+}
+
+async function handleTicketClose(interaction) {
+  const channel = interaction.channel;
+  if (!channel || !channel.name?.startsWith('ticket-')) {
+    return interaction.editReply('This is not a ticket channel.');
+  }
+  await interaction.editReply('Closing this ticket in 3 seconds...');
+  setTimeout(() => channel.delete('Ticket closed').catch(() => {}), 3000);
+}
+
 async function handleButton(interaction) {
   const id = interaction.customId;
   if (id === 'nyx:redeem') {
@@ -188,6 +282,8 @@ async function handleButton(interaction) {
     if (id === 'nyx:getscript') return await handleGetScript(interaction);
     if (id === 'nyx:resethwid') return await interaction.editReply(await resetHwid(interaction.user.id));
     if (id === 'nyx:mykey') return await handleMyKey(interaction);
+    if (id === 'nyx:ticket') return await handleTicketOpen(interaction);
+    if (id === 'nyx:close_ticket') return await handleTicketClose(interaction);
   } catch (error) {
     console.error(`Button ${id} failed:`, error.message);
     const message = error instanceof WorkerError ? error.message : 'The request failed. Please try again shortly.';
@@ -280,6 +376,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
   console.log(`NYX bot online as ${readyClient.user.tag}.`);
   await postOrUpdatePanel(readyClient);
+  await postTicketPanel(readyClient);
 });
 
 const BUYER_ROLE_TIERS = {
