@@ -34,6 +34,11 @@ const workerUrl = workerBase.toString().replace(/\/$/, '');
 const adminIds = new Set(process.env.ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean));
 if (adminIds.size === 0) throw new Error('ADMIN_IDS must contain at least one Discord user ID');
 
+const targetGuildId = process.env.DISCORD_GUILD_ID?.trim() || '';
+function isTargetGuild(guild) {
+  return !targetGuildId || guild.id === targetGuildId;
+}
+
 const panelChannelId = process.env.PANEL_CHANNEL_ID?.trim() || '';
 const panelStatePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.panel.json');
 
@@ -273,6 +278,7 @@ async function postManagedPanel(client, channelId, stateFile, payload, label) {
 
 async function ensureGiveawayChannel(client) {
   for (const guild of client.guilds.cache.values()) {
+    if (!isTargetGuild(guild)) continue;
     try {
       const existing = guild.channels.cache.find(
         (channel) => channel.type === ChannelType.GuildText && channel.name.toLowerCase() === 'giveaway',
@@ -532,6 +538,7 @@ function hasScriptRole(member) {
 
 async function sweepJoinRoles() {
   for (const guild of client.guilds.cache.values()) {
+    if (!isTargetGuild(guild)) continue;
     const joinRoles = JOIN_ROLE_NAMES.map((name) => findRole(guild, name)).filter(Boolean);
     if (joinRoles.length === 0) continue;
     const members = await guild.members.fetch().catch(() => null);
@@ -605,6 +612,7 @@ async function deliverKeyForRole(member, roleName, tier, { notifyExisting = true
 
 async function sweepMissingKeyRoles() {
   for (const guild of client.guilds.cache.values()) {
+    if (!isTargetGuild(guild)) continue;
     const tierByRole = new Map();
     for (const [roleName, tier] of Object.entries(BUYER_ROLE_TIERS)) {
       const role = findRole(guild, roleName);
@@ -632,6 +640,7 @@ const EXPIRING_KEY_ROLES = ['trial', 'buyer (temporary)'];
 
 async function sweepExpiredKeyRoles() {
   for (const guild of client.guilds.cache.values()) {
+    if (!isTargetGuild(guild)) continue;
     const watched = EXPIRING_KEY_ROLES
       .map((name) => guild.roles.cache.find((role) => role.name.toLowerCase() === name))
       .filter(Boolean);
