@@ -1,4 +1,4 @@
-const TIERS = Object.freeze({ lifetime: null, '7d': 7, '30d': 30, '90d': 90 });
+const TIERS = Object.freeze({ lifetime: null, '1d': 1, '7d': 7, '30d': 30, '90d': 90 });
 const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const KEY_PATTERN = /^NYX-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const MAX_RESETS_PER_WEEK = 10;
@@ -123,7 +123,7 @@ async function createKeys(body, env) {
   if (!Number.isInteger(amount) || amount < 1 || amount > MAX_CREATE_AMOUNT) {
     throw new ApiError(400, `amount must be an integer from 1 to ${MAX_CREATE_AMOUNT}.`);
   }
-  if (!Object.hasOwn(TIERS, tier)) throw new ApiError(400, 'tier must be lifetime, 7d, 30d, or 90d.');
+  if (!Object.hasOwn(TIERS, tier)) throw new ApiError(400, 'tier must be lifetime, 1d, 7d, 30d, or 90d.');
 
   const keys = [];
   const created = new Date().toISOString();

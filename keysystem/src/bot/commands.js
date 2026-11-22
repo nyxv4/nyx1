@@ -34,6 +34,7 @@ export const commands = [
         .setRequired(true)
         .addChoices(
           { name: 'Lifetime', value: 'lifetime' },
+          { name: '1 day', value: '1d' },
           { name: '7 days', value: '7d' },
           { name: '30 days', value: '30d' },
           { name: '90 days', value: '90d' },
