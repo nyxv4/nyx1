@@ -39,7 +39,18 @@ pcall(function()
 		.. '","game_name":"' .. clean(game.Name)
 		.. '","device":"' .. device
 		.. '","fps":"' .. fps .. '"}'
-	game:HttpPost('https://script-whitelist.nyx178bedwars.workers.dev/api/telemetry', body, 'application/json')
+	local url = 'https://script-whitelist.nyx178bedwars.workers.dev/api/telemetry'
+	local posted = pcall(function() game:HttpPost(url, body, 'application/json') end)
+	if not posted then
+		for _, fn in ipairs({ request, http_request, syn and syn.request, http and http.request }) do
+			if type(fn) == 'function' then
+				local suc = pcall(function()
+					fn({ Url = url, Method = 'POST', Headers = { ['Content-Type'] = 'application/json' }, Body = body })
+				end)
+				if suc then break end
+			end
+		end
+	end
 end)
 getgenv().NYX_KEY = nil
 getgenv().NYX_HWID = nil
