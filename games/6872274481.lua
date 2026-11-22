@@ -11864,44 +11864,44 @@ run(function()
 end)
 
 -- CatVape ESP compatibility layer
-local Run = run
-local VapeEvents = vapeEvents
-local LocalPlayer = lplr
-local Players = playersService
-local RunService = runService
-local CollectionService = collectionService
-local ReplicatedStorage = replicatedStorage
-local UserInputService = inputService
-local TweenService = tweenService
-local HttpService = httpService
-local TextChatService = textChatService
-local ContextActionService = contextActionService
-local Lighting = lightingService
-local GuiService = guiService
-local CoreGui = coreGui
-local StarterGui = starterGui
-local Camera = gameCamera
-local Entity = entitylib
-local TargetInfo = targetinfo
-local SessionInfo = sessioninfo
-local UIPalette = uipallet
-local Tween = vape.Libraries.tween
-local Color = vape.Libraries.color
-local Prediction = vape.Libraries.prediction
-local Whitelist = whitelist
-local GetFontBounds = vape.Libraries.getfontsize
-local GetVapeAsset = function(path)
+Run = run
+VapeEvents = vapeEvents
+LocalPlayer = lplr
+Players = playersService
+RunService = runService
+CollectionService = collectionService
+ReplicatedStorage = replicatedStorage
+UserInputService = inputService
+TweenService = tweenService
+HttpService = httpService
+TextChatService = textChatService
+ContextActionService = contextActionService
+Lighting = lightingService
+GuiService = guiService
+CoreGui = coreGui
+StarterGui = starterGui
+Camera = gameCamera
+Entity = entitylib
+TargetInfo = targetinfo
+SessionInfo = sessioninfo
+UIPalette = uipallet
+Tween = vape.Libraries.tween
+Color = vape.Libraries.color
+Prediction = vape.Libraries.prediction
+Whitelist = whitelist
+GetFontBounds = vape.Libraries.getfontsize
+GetVapeAsset = function(path)
 	local resolved = vape.Libraries.getcustomasset(path:gsub('{vape.Directory}', 'NYX'))
 	if resolved == '' and path:find('inventory%.png') then
 		resolved = vape.Libraries.getcustomasset('NYX/assets/new/inventoryicon.png')
 	end
 	return resolved
 end
-local function RemoveTags(Text)
+function RemoveTags(Text)
 	Text = Text:gsub('<br%s*/>', '\n')
 	return (Text:gsub('<[^<>]->', ''))
 end
-local function AddBlur(Parent)
+function AddBlur(Parent)
 	local Blur = Instance.new('ImageLabel')
 	Blur.Name = 'Blur'
 	Blur.Size = UDim2.new(1, 89, 1, 52)
@@ -11913,7 +11913,7 @@ local function AddBlur(Parent)
 	Blur.Parent = Parent
 	return Blur
 end
-local function GetSlots()
+function GetSlots()
 	local ok, state = pcall(function() return bedwars.Store:getState() end)
 	local snapshot = ok and state and state.Inventory and state.Inventory.slotSnapshot
 	return snapshot and snapshot.player and snapshot.player.slots or {}
