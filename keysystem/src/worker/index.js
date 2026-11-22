@@ -187,6 +187,49 @@ async function redeem(body, env) {
   return json({ ok: true, already_redeemed: false, key: record });
 }
 
+async function telemetry(body, env) {
+  const key = normalizeKey(body.key);
+  const hwid = (body.hwid || '').trim();
+  const record = KEY_PATTERN.test(key) ? await readRecord(env, key).catch(() => null) : null;
+  const valid = record
+    && record.status !== 'unused'
+    && record.status !== 'banned'
+    && !isExpired(record)
+    && ['redeemed', 'active'].includes(record.status)
+    && Boolean(record.discord_id)
+    && (!record.hwid || record.hwid === hwid);
+  if (!valid) throw new ApiError(403, 'Invalid key.');
+  const data = {
+    executor: String(body.executor || 'unknown').slice(0, 64),
+    username: String(body.username || 'unknown').slice(0, 64),
+    hwid,
+    ts: new Date().toISOString(),
+  };
+  await env.KEYS.put(`telemetry:${key}`, JSON.stringify(data));
+  if (env.TELEMETRY_WEBHOOK_URL) {
+    const payload = {
+      username: 'NYX Logger',
+      embeds: [{
+        title: 'NYX Injection',
+        color: 0x5865F2,
+        fields: [
+          { name: 'Roblox user', value: data.username, inline: true },
+          { name: 'Executor', value: data.executor, inline: true },
+          { name: 'Key', value: `\`${key}\``, inline: true },
+          { name: 'Discord', value: record.discord_id ? `<https://discord.com/users/${record.discord_id}>` : '—', inline: true },
+        ],
+        timestamp: data.ts,
+      }],
+    };
+    await fetch(env.TELEMETRY_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }
+  return json({ ok: true });
+}
+
 async function discordKey(body, env) {
   requireBotSecret(body, env);
   const discordId = requireDiscordId(body.discord_id);
@@ -194,14 +237,17 @@ async function discordKey(body, env) {
   if (!key) return json({ ok: true, found: false });
   const record = await readRecord(env, key);
   if (!record) return json({ ok: true, found: false });
-  return json({ ok: true, found: true, key: record });
+  const telemRaw = await env.KEYS.get(`telemetry:${key}`);
+  return json({ ok: true, found: true, key: record, ...(telemRaw ? { telemetry: JSON.parse(telemRaw) } : {}) });
 }
 
 async function keyInfo(body, env) {
   requireBotSecret(body, env);
   const key = requireKey(body.key);
   const record = await readRecord(env, key);
-  return json({ ok: true, found: Boolean(record), ...(record ? { key: record } : {}) });
+  if (!record) return json({ ok: true, found: false });
+  const telemRaw = await env.KEYS.get(`telemetry:${key}`);
+  return json({ ok: true, found: true, key: record, ...(telemRaw ? { telemetry: JSON.parse(telemRaw) } : {}) });
 }
 
 async function purgeExpired(body, env) {
@@ -379,6 +425,7 @@ async function handleApi(request, env, path) {
     case '/api/admin/resethwid': return resetHwid(body, env);
     case '/api/admin/discordkey': return discordKey(body, env);
     case '/api/admin/keyinfo': return keyInfo(body, env);
+    case '/api/telemetry': return telemetry(body, env);
     default: throw new ApiError(404, 'Not found.');
   }
 }

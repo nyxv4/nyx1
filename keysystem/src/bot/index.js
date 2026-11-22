@@ -435,6 +435,11 @@ async function handleKeyInfo(interaction) {
     `**Tier:** ${record.tier}`,
     `**Created:** ${dateText(record.created)}`,
     `**Expires:** ${expiryText(record)}`,
+    ...(result.telemetry ? [
+      `**Executor:** ${result.telemetry.executor}`,
+      `**Roblox user:** ${result.telemetry.username}`,
+      `**Last seen:** ${dateText(result.telemetry.ts)}`,
+    ] : ['**Executor:** No data yet']),
   ].join('\n'));
 }
 

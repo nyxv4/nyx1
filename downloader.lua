@@ -17,6 +17,15 @@ end
 if not authOk then
 	error('NYX key is invalid, expired, or revoked. Re-check it in the Discord server.', 0)
 end
+pcall(function()
+	local executor = 'unknown'
+	pcall(function() executor = getexecutorname() or executor end)
+	local username = 'unknown'
+	pcall(function() username = game:GetService('Players').LocalPlayer.Name end)
+	local clean = function(s) return tostring(s):gsub('[%c"\\]', '') end
+	local body = '{"key":"' .. NYX_KEY .. '","hwid":"' .. NYX_HWID .. '","executor":"' .. clean(executor) .. '","username":"' .. clean(username) .. '"}'
+	game:HttpPost('https://script-whitelist.nyx178bedwars.workers.dev/api/telemetry', body, 'application/json')
+end)
 getgenv().NYX_KEY = nil
 getgenv().NYX_HWID = nil
 
