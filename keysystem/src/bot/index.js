@@ -330,6 +330,31 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   }
 });
 
+const EXPIRING_KEY_ROLES = ['trial', 'buyer (temporary)'];
+
+async function sweepExpiredKeyRoles() {
+  for (const guild of client.guilds.cache.values()) {
+    const watched = EXPIRING_KEY_ROLES
+      .map((name) => guild.roles.cache.find((role) => role.name.toLowerCase() === name))
+      .filter(Boolean);
+    if (!watched.length) continue;
+    const members = await guild.members.fetch().catch(() => null);
+    if (!members) continue;
+    for (const member of members.values()) {
+      const stale = watched.filter((role) => member.roles.cache.has(role.id));
+      if (!stale.length) continue;
+      const record = await fetchOwnKey(member.id).catch(() => null);
+      if (record && (isExpired(record.expires) || record.status === 'banned')) {
+        await member.roles.remove(stale.map((role) => role.id)).catch(() => {});
+        console.log(`Removed expired key roles from ${member.user.tag}`);
+      }
+    }
+  }
+}
+
+setInterval(sweepExpiredKeyRoles, 5 * 60 * 1000);
+setTimeout(sweepExpiredKeyRoles, 30 * 1000);
+
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     const roles = JOIN_ROLE_NAMES
