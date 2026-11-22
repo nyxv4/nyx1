@@ -6808,6 +6808,7 @@ local lastmaxhealth = 0
 targetinfo = {
 	Targets = {},
 	Object = targetinfobkg,
+	TargetChanged = Instance.new('BindableEvent'),
 	UpdateInfo = function(self)
 		local entitylib = mainapi.Libraries
 		if not entitylib then return end
@@ -6827,6 +6828,10 @@ targetinfo = {
 		end
 
 		targetinfobkg.Visible = v ~= nil or mainapi.gui.ScaledGui.ClickGui.Visible
+		if v ~= self._tcLast then
+			self._tcLast = v
+			self.TargetChanged:Fire(v)
+		end
 		if v then
 			local nametext = v.Player and (targetinfodisplay.Enabled and v.Player.DisplayName or v.Player.Name) or v.Character and v.Character.Name
 			if nametext and nametext ~= self.NameText then
