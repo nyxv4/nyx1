@@ -274,6 +274,40 @@ client.once(Events.ClientReady, async (readyClient) => {
   await postOrUpdatePanel(readyClient);
 });
 
+const BUYER_ROLE_TIERS = {
+  'buyer (temporary)': '7d',
+  'buyer (permanent)': 'lifetime',
+};
+
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  try {
+    for (const [roleName, tier] of Object.entries(BUYER_ROLE_TIERS)) {
+      const role = newMember.guild.roles.cache.find((r) => r.name.toLowerCase() === roleName);
+      if (!role) continue;
+      if (oldMember.roles.cache.has(role.id) || !newMember.roles.cache.has(role.id)) continue;
+
+      const existing = await fetchOwnKey(newMember.id).catch(() => null);
+      if (existing) {
+        await newMember.send('You already have a NYX key linked to this Discord account. Use `/mykey` to check it.').catch(() => {});
+        continue;
+      }
+      const result = await callWorker('/api/admin/createkeys', { amount: 1, tier });
+      const key = result.keys[0];
+      await newMember.send([
+        'Thanks for your purchase!',
+        '',
+        `Your NYX key: \`${key}\``,
+        '',
+        'Redeem it in the server with `/redeem key:' + key + '` or the **Redeem Key** button,',
+        'then grab your loader with **Get Script**.',
+      ].join('\n')).catch(() => {});
+      console.log(`Sent ${tier} key to ${newMember.user.tag} via ${role.name}`);
+    }
+  } catch (error) {
+    console.error('Buyer role key delivery failed:', error.message);
+  }
+});
+
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
     const roles = JOIN_ROLE_NAMES
