@@ -57,7 +57,17 @@ wrangler kv namespace create KEYS
 
 Copy the `id` it prints (looks like `abc123...`) and paste it into `wrangler.toml` where it says `PASTE_KV_NAMESPACE_ID_HERE`.
 
-### 2.3 Set config values
+### 2.3 Set your workers.dev subdomain to nyxauth
+
+Your loader URL will be `https://script-whitelist.nyxauth.workers.dev`, so the account subdomain must be `nyxauth`:
+
+1. Cloudflare Dashboard → **Workers & Pages** (left sidebar)
+2. On the overview page, find the **workers.dev subdomain** shown at the top — click it / **Change**
+3. Enter `nyxauth` → save
+   - ⚠️ This renames the URL of **every** worker on your account (`*.weikauth.workers.dev` → `*.nyxauth.workers.dev`). If you have other workers, update anything pointing at the old URLs.
+   - If `nyxauth` is taken, pick a similar one and update `WORKER_URL` in `.env` to match.
+
+### 2.4 Set secrets
 
 ```
 wrangler secret put BOT_SECRET
@@ -67,13 +77,13 @@ It will prompt — type a long random password (this lets the Discord bot talk t
 
 `SCRIPT_URL` is already set in `wrangler.toml` — no action needed.
 
-### 2.4 Deploy
+### 2.5 Deploy
 
 ```
 wrangler deploy
 ```
 
-It prints your Worker URL, e.g. `https://nyx-keysystem.yourname.workers.dev`. **Save this — it's `WORKER_URL`.**
+It prints your Worker URL, e.g. `https://script-whitelist.nyxauth.workers.dev`. **Save this — it's `WORKER_URL`** (already pre-filled in `.env` if you followed the subdomain step below).
 
 ---
 
