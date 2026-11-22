@@ -5,6 +5,7 @@ import {
   ButtonStyle,
   Client,
   Events,
+  GatewayIntentBits,
   MessageFlags,
   ModalBuilder,
   REST,
@@ -33,7 +34,8 @@ if (adminIds.size === 0) throw new Error('ADMIN_IDS must contain at least one Di
 const panelChannelId = process.env.PANEL_CHANNEL_ID?.trim() || '';
 const panelStatePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.panel.json');
 
-const client = new Client({ intents: [] });
+const JOIN_ROLE_NAMES = ['Free', 'Member'];
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 class WorkerError extends Error {
@@ -270,6 +272,17 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
   console.log(`NYX bot online as ${readyClient.user.tag}.`);
   await postOrUpdatePanel(readyClient);
+});
+
+client.on(Events.GuildMemberAdd, async (member) => {
+  try {
+    const roles = JOIN_ROLE_NAMES
+      .map((name) => member.guild.roles.cache.find((role) => role.name.toLowerCase() === name.toLowerCase()))
+      .filter(Boolean);
+    if (roles.length > 0) await member.roles.add(roles);
+  } catch (error) {
+    console.error(`Auto-role failed for ${member.user.tag}:`, error.message);
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
