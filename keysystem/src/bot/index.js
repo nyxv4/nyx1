@@ -278,6 +278,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 const BUYER_ROLE_TIERS = {
   'buyer (temporary)': '7d',
   'buyer (permanent)': 'lifetime',
+  'trial': '1d',
 };
 
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
