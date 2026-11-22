@@ -36,7 +36,7 @@ node -p "require('node:crypto').randomBytes(32).toString('hex')"
 
 Use the same secret for the bot and Worker. To find Discord user and server IDs, enable Developer Mode in Discord, then use **Copy User ID** or **Copy Server ID**. The application ID is obtained from the logged-in bot, so it does not need a separate environment variable.
 
-In the Developer Portal, create a bot and invite it to your server with the `bot` and `applications.commands` scopes. Give it permission to send messages and attach files. The bot does not need privileged gateway intents. Users must allow DMs from server members to receive `/getscript`.
+In the Developer Portal, create a bot and invite it to your server with the `bot` and `applications.commands` scopes. Give it permission to send messages, attach files, and manage roles. Enable the **Server Members** privileged gateway intent so join auto-roles and member role updates work. Users must allow DMs from server members to receive `/getscript`.
 
 ## 2. Create the KV namespaces
 

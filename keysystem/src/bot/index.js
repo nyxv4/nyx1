@@ -41,6 +41,17 @@ const JOIN_ROLE_NAMES = ['Free', 'Member'];
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
+function findRole(guild, name) {
+  const needle = name.toLowerCase();
+  return guild.roles.cache.find((role) => role.name.trim().toLowerCase() === needle);
+}
+
+async function addJoinRoles(member) {
+  const roles = JOIN_ROLE_NAMES.map((name) => findRole(member.guild, name)).filter(Boolean);
+  const missing = roles.filter((role) => !member.roles.cache.has(role.id));
+  if (missing.length > 0) await member.roles.add(missing);
+}
+
 class WorkerError extends Error {
   constructor(message, status) {
     super(message);
@@ -458,6 +469,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   await postOrUpdatePanel(readyClient);
   await postManagedPanel(readyClient, TICKET_PANEL_CHANNEL_ID, ticketPanelStatePath, buildPurchasePanel(), 'Purchase panel');
   await postManagedPanel(readyClient, SUPPORT_PANEL_CHANNEL_ID, supportPanelStatePath, buildSupportPanel(), 'Support panel');
+  await sweepJoinRoles().catch((error) => console.error('Join-role backfill failed:', error.message));
 });
 
 const BUYER_ROLE_TIERS = {
@@ -467,6 +479,29 @@ const BUYER_ROLE_TIERS = {
 };
 
 const SCRIPT_ROLE_NAMES = new Set(Object.keys(BUYER_ROLE_TIERS));
+
+function hasScriptRole(member) {
+  return member.roles.cache.some((role) => SCRIPT_ROLE_NAMES.has(role.name.trim().toLowerCase()));
+}
+
+async function sweepJoinRoles() {
+  for (const guild of client.guilds.cache.values()) {
+    const joinRoles = JOIN_ROLE_NAMES.map((name) => findRole(guild, name)).filter(Boolean);
+    if (joinRoles.length === 0) continue;
+    const members = await guild.members.fetch().catch(() => null);
+    if (!members) continue;
+    for (const member of members.values()) {
+      if (member.user.bot || hasScriptRole(member)) continue;
+      const missing = joinRoles.filter((role) => !member.roles.cache.has(role.id));
+      if (missing.length === 0) continue;
+      await member.roles.add(missing).catch((error) => {
+        console.error(`Join-role backfill failed for ${member.user.tag}:`, error.message);
+      });
+    }
+  }
+}
+
+setInterval(sweepJoinRoles, 15 * 60 * 1000);
 
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   try {
@@ -545,10 +580,7 @@ setTimeout(sweepExpiredKeyRoles, 30 * 1000);
 
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
-    const roles = JOIN_ROLE_NAMES
-      .map((name) => member.guild.roles.cache.find((role) => role.name.toLowerCase() === name.toLowerCase()))
-      .filter(Boolean);
-    if (roles.length > 0) await member.roles.add(roles);
+    await addJoinRoles(member);
   } catch (error) {
     console.error(`Auto-role failed for ${member.user.tag}:`, error.message);
   }
