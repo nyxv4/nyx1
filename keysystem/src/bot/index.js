@@ -546,35 +546,66 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
         continue;
       }
       if (had || !has) continue;
-
-      if (memberRole && newMember.roles.cache.has(memberRole.id)) {
-        await newMember.roles.remove(memberRole).catch(() => {});
-      }
-
-      const existing = await fetchOwnKey(newMember.id).catch(() => null);
-      if (existing) {
-        await newMember.send('You already have a NYX key linked to this Discord account. Use `/mykey` to check it.').catch(() => {});
-        continue;
-      }
-      const result = await callWorker('/api/admin/createkeys', { amount: 1, tier });
-      const key = result.keys[0];
-      const intro = roleName === 'trial'
-        ? 'Enjoy your trial!'
-        : 'Thanks for your purchase!';
-      await newMember.send([
-        intro,
-        '',
-        `Your NYX key: \`${key}\``,
-        '',
-        'Redeem it in the server with `/redeem key:' + key + '` or the **Redeem Key** button,',
-        'then grab your loader with **Get Script**.',
-      ].join('\n')).catch(() => {});
-      console.log(`Sent ${tier} key to ${newMember.user.tag} via ${role.name}`);
+      await deliverKeyForRole(newMember, roleName, tier);
     }
   } catch (error) {
     console.error('Buyer role key delivery failed:', error.message);
   }
 });
+
+async function deliverKeyForRole(member, roleName, tier, { notifyExisting = true } = {}) {
+  const memberRole = findRole(member.guild, 'member');
+  if (memberRole && member.roles.cache.has(memberRole.id)) {
+    await member.roles.remove(memberRole).catch(() => {});
+  }
+
+  const existing = await fetchOwnKey(member.id).catch(() => null);
+  if (existing) {
+    if (notifyExisting) {
+      await member.send('You already have a NYX key linked to this Discord account. Use `/mykey` to check it.').catch(() => {});
+    }
+    return;
+  }
+  const result = await callWorker('/api/admin/createkeys', { amount: 1, tier });
+  const key = result.keys[0];
+  const intro = roleName === 'trial'
+    ? 'Enjoy your trial!'
+    : 'Thanks for your purchase!';
+  await member.send([
+    intro,
+    '',
+    `Your NYX key: \`${key}\``,
+    '',
+    'Redeem it in the server with `/redeem key:' + key + '` or the **Redeem Key** button,',
+    'then grab your loader with **Get Script**.',
+  ].join('\n')).catch(() => {});
+  console.log(`Sent ${tier} key to ${member.user.tag} via ${roleName}`);
+}
+
+async function sweepMissingKeyRoles() {
+  for (const guild of client.guilds.cache.values()) {
+    const tierByRole = new Map();
+    for (const [roleName, tier] of Object.entries(BUYER_ROLE_TIERS)) {
+      const role = findRole(guild, roleName);
+      if (role) tierByRole.set(role.id, { name: roleName, tier });
+    }
+    if (tierByRole.size === 0) continue;
+    const members = await guild.members.fetch().catch(() => null);
+    if (!members) continue;
+    for (const member of members.values()) {
+      if (member.user.bot) continue;
+      const hit = member.roles.cache.map((role) => tierByRole.get(role.id)).find(Boolean);
+      if (!hit) continue;
+      const existing = await fetchOwnKey(member.id).catch(() => null);
+      if (existing) continue;
+      await deliverKeyForRole(member, hit.name, hit.tier, { notifyExisting: false })
+        .catch((error) => console.error(`Key backfill failed for ${member.user.tag}:`, error.message));
+    }
+  }
+}
+
+setTimeout(sweepMissingKeyRoles, 60 * 1000);
+setInterval(sweepMissingKeyRoles, 15 * 60 * 1000);
 
 const EXPIRING_KEY_ROLES = ['trial', 'buyer (temporary)'];
 
