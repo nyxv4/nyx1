@@ -6945,8 +6945,8 @@ run(function()
 	local lastSwingAnim = 0 -- Gate for the real sword swing so it runs at the sword's own speed
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.286 -- fallback only; the real period comes from SwordTiming.resolvePeriod
-	local SERVER_FLOOR = 0.283
+	local HIT_PERIOD = 0.296 -- fallback only; the real period comes from SwordTiming.resolvePeriod
+	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
 	local AURA_SWING_INTERVAL = 0.35 -- cosmetic only: matches the native sword swing; hits keep their own cadence
@@ -6971,10 +6971,10 @@ run(function()
 
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
-		SafeSpacing  = 0.284, -- Stealth Mode delay
-		HighSpacing  = 0.278, -- spacing used by the Dynamic/Advanced calculation
-		HitFloor     = 0.283, -- the server's minimum allowed time between hits. Going below this will cause ghost hits.
-		GapFloor     = 0.285, -- minimum gap between con hits
+		SafeSpacing  = 0.295, -- Stealth Mode delay
+		HighSpacing  = 0.2855, -- spacing used by the Dynamic/Advanced calculation
+		HitFloor     = 0.292, -- the server's minimum allowed time between hits. Going below this will cause ghost hits.
+		GapFloor     = 0.2945, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
 		CooldownCorrection = (0.017999999225139618 / 10) + 0.013412,
 	}
