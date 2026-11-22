@@ -174,7 +174,7 @@ async function postOrUpdatePanel(client) {
 // ---- ticket tool + dropdown panels ----
 
 const TICKET_PANEL_CHANNEL_ID = '1574039296258736210'; // #purchase
-const SUPPORT_PANEL_CHANNEL_ID = '1574044470041776319'; // #support
+const SUPPORT_PANEL_CHANNEL_ID = '1574045977940332677'; // #support
 const stateDir = path.dirname(fileURLToPath(import.meta.url));
 const ticketPanelStatePath = path.join(stateDir, '..', '.ticket-panel.json');
 const supportPanelStatePath = path.join(stateDir, '..', '.support-panel.json');
@@ -462,6 +462,7 @@ const SCRIPT_ROLE_NAMES = new Set(Object.keys(BUYER_ROLE_TIERS));
 
 client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
   try {
+    const memberRole = newMember.guild.roles.cache.find((r) => r.name.toLowerCase() === 'member');
     for (const [roleName, tier] of Object.entries(BUYER_ROLE_TIERS)) {
       const role = newMember.guild.roles.cache.find((r) => r.name.toLowerCase() === roleName);
       if (!role) continue;
@@ -470,10 +471,17 @@ client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
       if (had && !has) {
         await callWorker('/api/admin/revoke', { discord_id: newMember.id }).catch(() => {});
         await newMember.send('Your NYX key has been deactivated.').catch(() => {});
+        if (memberRole && !newMember.roles.cache.has(memberRole.id)) {
+          await newMember.roles.add(memberRole).catch(() => {});
+        }
         console.log(`Revoked key for ${newMember.user.tag} (${role.name} removed)`);
         continue;
       }
       if (had || !has) continue;
+
+      if (memberRole && newMember.roles.cache.has(memberRole.id)) {
+        await newMember.roles.remove(memberRole).catch(() => {});
+      }
 
       const existing = await fetchOwnKey(newMember.id).catch(() => null);
       if (existing) {
@@ -516,6 +524,8 @@ async function sweepExpiredKeyRoles() {
       const record = await fetchOwnKey(member.id).catch(() => null);
       if (record && (isExpired(record.expires) || record.status === 'banned')) {
         await member.roles.remove(stale.map((role) => role.id)).catch(() => {});
+        const memberRole = guild.roles.cache.find((role) => role.name.toLowerCase() === 'member');
+        if (memberRole) await member.roles.add(memberRole).catch(() => {});
         console.log(`Removed expired key roles from ${member.user.tag}`);
       }
     }
