@@ -96,13 +96,9 @@ function expiryText(record) {
 
 function buildLoader(key) {
   const endpoint = `${workerUrl}/getscript?key=${key}&hwid=`;
-  return [
-    `getgenv().script_key = "${key}"`,
-    'local i=game:GetService("RbxAnalyticsService"):GetClientId()local h=i',
-    'if crypt and crypt.hash then local o,x=pcall(crypt.hash,"sha256",i)if o and type(x)=="string"then h=x end end',
-    `local f,e=loadstring(game:HttpGet("${endpoint}"..tostring(h)))`,
-    'if f then f()else warn(e)end',
-  ].join('\n');
+  return `loadstring(game:HttpGet("${endpoint}"..game:GetService("RbxAnalyticsService"):GetClientId()))({
+    Closet = false, -- set to true to disable all notifications
+})`;
 }
 
 async function fetchOwnKey(discordId) {
