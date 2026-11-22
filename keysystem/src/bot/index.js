@@ -112,22 +112,9 @@ function expiryText(record) {
 
 function buildLoader(key) {
   const endpoint = `${workerUrl}/getscript?key=${key}&hwid=`;
-  return `local function nyxEnc(s)
-	return (tostring(s):gsub('([^%w%-_.~])', function(c) return string.format('%%%02X', c:byte()) end))
-end
-local hwid = (function()
-	local ok, hashed = pcall(function()
-		return crypt and crypt.hash and crypt.hash('sha256', game:GetService('RbxAnalyticsService'):GetClientId())
-	end)
-	if ok and type(hashed) == 'string' and #hashed > 0 then return hashed end
-	return tostring(game:GetService('RbxAnalyticsService'):GetClientId())
-end)()
-local chunk, err = loadstring(game:HttpGet("${endpoint}"..nyxEnc(tostring(hwid))))
-if chunk then
-	chunk({ Closet = false }) -- set Closet = true to disable all notifications
-else
-	warn(err)
-end`;
+  return `local h=(function()local ok,r=pcall(function()return crypt and crypt.hash and crypt.hash('sha256',game:GetService('RbxAnalyticsService'):GetClientId())end)return ok and type(r)=='string' and #r>0 and r or tostring(game:GetService('RbxAnalyticsService'):GetClientId())end)()
+local f,e=loadstring(game:HttpGet("${endpoint}"..tostring(h)))
+if f then f({Closet=false}) else warn(e) end`;
 }
 
 async function fetchOwnKey(discordId) {
