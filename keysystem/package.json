@@ -1,0 +1,13 @@
+{
+	"name": "nyx-keysystem-bot",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Discord bot for NYX keysystem",
+	"main": "bot.js",
+	"scripts": {
+		"start": "node bot.js"
+	},
+	"dependencies": {
+		"discord.js": "^14.16.3"
+	}
+}
