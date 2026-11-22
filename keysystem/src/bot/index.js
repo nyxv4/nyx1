@@ -86,16 +86,10 @@ function buildLoader(key) {
   const endpoint = `${workerUrl}/getscript?key=${key}&hwid=`;
   return [
     `getgenv().script_key = "${key}"`,
-    'local clientId = game:GetService("RbxAnalyticsService"):GetClientId()',
-    'local hwid = clientId',
-    'if type(crypt) == "table" and type(crypt.hash) == "function" then',
-    '    local ok, hashed = pcall(function() return crypt.hash("sha256", clientId) end)',
-    '    if ok and type(hashed) == "string" and #hashed > 0 then hwid = hashed end',
-    'end',
-    'local http = game:GetService("HttpService")',
-    `local f, e = loadstring(game:HttpGet("${endpoint}" .. http:UrlEncode(tostring(hwid))))`,
-    'if f then f() else warn(e) end',
-    '',
+    'local i=game:GetService("RbxAnalyticsService"):GetClientId()local h=i',
+    'if crypt and crypt.hash then local o,x=pcall(crypt.hash,"sha256",i)if o and type(x)=="string"then h=x end end',
+    `local f,e=loadstring(game:HttpGet("${endpoint}"..tostring(h)))`,
+    'if f then f()else warn(e)end',
   ].join('\n');
 }
 
