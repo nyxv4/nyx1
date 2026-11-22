@@ -142,6 +142,8 @@ async function resetHwid(discordId) {
 const PANEL_CONTENT = [
   '**nyx**',
   '**get your script, reset your hwid or check your key below.**',
+  '',
+  'Update: had to revert the killaura update because it had lots of bugs.',
 ].join('\n');
 
 function buildPanel() {
