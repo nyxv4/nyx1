@@ -6,6 +6,31 @@ if type(setthreadidentity) == 'function' then
 end
 if shared.vape then pcall(function() shared.vape:Uninject() end) end
 
+local NYX_KEY = getgenv and getgenv().NYX_KEY or nil
+local NYX_HWID = getgenv and getgenv().NYX_HWID or nil
+if type(NYX_KEY) ~= 'string' or type(NYX_HWID) ~= 'string' then
+	error('NYX requires a valid key. Get your loader from the Discord server.', 0)
+end
+local function urlEncode(s)
+	return (tostring(s):gsub('([^%w%-_.~])', function(c) return string.format('%%%02X', c:byte()) end))
+end
+local authOk = false
+for _ = 1, 3 do
+	local suc, res = pcall(function()
+		return game:HttpGet('https://script-whitelist.nyx178bedwars.workers.dev/api/verify?key=' .. urlEncode(NYX_KEY) .. '&hwid=' .. urlEncode(NYX_HWID), true)
+	end)
+	if suc and type(res) == 'string' and res:find('"ok":true', 1, true) then
+		authOk = true
+		break
+	end
+	task.wait(1)
+end
+if not authOk then
+	error('NYX key is invalid, expired, or revoked. Re-check it in the Discord server.', 0)
+end
+getgenv().NYX_KEY = nil
+getgenv().NYX_HWID = nil
+
 local LOADER_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/downloader.lua" 
 local _initArgs = ...
 if type(_initArgs) ~= "table" then _initArgs = {} end
@@ -131,7 +156,7 @@ local function buildTeleportScript()
 	end
 	local args = #argParts > 0 and ('({' .. table.concat(argParts, ', ') .. '})') or '()'
 	-- executors that append instead of replacing would otherwise load the hub once per queued copy
-	local teleportScript = 'if shared.NYXTeleportLoad == game.JobId then return end\nshared.NYXTeleportLoad = game.JobId\nshared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
+	local teleportScript = 'getgenv().NYX_KEY=[==[' .. NYX_KEY .. ']==];getgenv().NYX_HWID=[==[' .. NYX_HWID .. ']==];\nif shared.NYXTeleportLoad == game.JobId then return end\nshared.NYXTeleportLoad = game.JobId\nshared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
 
 	if identifyexecutor and ({identifyexecutor()})[1] == 'Potassium' then
 		teleportScript = 'task.wait(12)\n' .. teleportScript

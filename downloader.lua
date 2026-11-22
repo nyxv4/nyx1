@@ -40,8 +40,6 @@ end
 if not authOk then
 	error('NYX key is invalid, expired, or revoked. Re-check it in the Discord server.', 0)
 end
-getgenv().NYX_KEY = nil
-getgenv().NYX_HWID = nil
 
 local _args = ...
 if type(_args) ~= "table" then _args = {} end

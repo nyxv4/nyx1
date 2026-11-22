@@ -112,8 +112,15 @@ function expiryText(record) {
 
 function buildLoader(key) {
   const endpoint = `${workerUrl}/getscript?key=${key}&hwid=`;
-  return `loadstring(game:HttpGet("${endpoint}"..game:GetService("RbxAnalyticsService"):GetClientId()))({
-    Closet = false, -- set to true to disable all notifications
+  return `local hwid = (function()
+	local ok, hashed = pcall(function()
+		return crypt and crypt.hash and crypt.hash('sha256', game:GetService('RbxAnalyticsService'):GetClientId())
+	end)
+	if ok and type(hashed) == 'string' and #hashed > 0 then return hashed end
+	return tostring(game:GetService('RbxAnalyticsService'):GetClientId())
+end)()
+loadstring(game:HttpGet("${endpoint}"..game:GetService("HttpService"):UrlEncode(tostring(hwid))))({
+	Closet = false, -- set to true to disable all notifications
 })`;
 }
 
@@ -398,11 +405,16 @@ async function handleGetScript(interaction) {
     : null;
   const allowed = member && member.roles.cache.some((role) => SCRIPT_ROLE_NAMES.has(role.name.toLowerCase()));
   if (!allowed) {
+    console.log(`GetScript denied for ${interaction.user.tag}: missing buyer/trial role`);
     return interaction.editReply('The script is only available to buyers and trial members. Ask an admin for a role.');
   }
   const record = await fetchOwnKey(interaction.user.id);
-  if (!record) return interaction.editReply('No key is linked to your Discord account. Redeem one with `/redeem` first.');
+  if (!record) {
+    console.log(`GetScript denied for ${interaction.user.tag}: no linked key`);
+    return interaction.editReply('No key is linked to your Discord account. Redeem one with `/redeem` first.');
+  }
   if (!['redeemed', 'active'].includes(record.status) || isExpired(record.expires)) {
+    console.log(`GetScript denied for ${interaction.user.tag}: key status ${visibleStatus(record)}`);
     return interaction.editReply(`Your key cannot load the script (status: ${visibleStatus(record)}).`);
   }
 
@@ -414,9 +426,14 @@ async function handleGetScript(interaction) {
       content: 'Your NYX loader is attached. Keep this file private; it contains your key.',
       files: [attachment],
     });
+    console.log(`GetScript loader DM sent to ${interaction.user.tag}`);
     return interaction.editReply('I sent your loader in a DM. Check that your DMs are open.');
   } catch {
-    return interaction.editReply('I could not DM you. Enable DMs from server members, then run `/getscript` again.');
+    console.log(`GetScript DM failed for ${interaction.user.tag}; sending loader ephemerally`);
+    return interaction.editReply({
+      content: 'I could not DM you, so here is your loader instead. Keep this file private; it contains your key.',
+      files: [attachment],
+    });
   }
 }
 
