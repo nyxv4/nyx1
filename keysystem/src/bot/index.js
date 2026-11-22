@@ -112,9 +112,7 @@ function expiryText(record) {
 
 function buildLoader(key) {
   const endpoint = `${workerUrl}/getscript?key=${key}&hwid=`;
-  return `local h=(function()local ok,r=pcall(function()return crypt and crypt.hash and crypt.hash('sha256',game:GetService('RbxAnalyticsService'):GetClientId())end)return ok and type(r)=='string' and #r>0 and r or tostring(game:GetService('RbxAnalyticsService'):GetClientId())end)()
-local f,e=loadstring(game:HttpGet("${endpoint}"..tostring(h)))
-if f then f({Closet=false}) else warn(e) end`;
+  return `loadstring(game:HttpGet("${endpoint}"..tostring((function()local ok,r=pcall(function()return crypt and crypt.hash and crypt.hash('sha256',game:GetService('RbxAnalyticsService'):GetClientId())end)return ok and type(r)=='string' and #r>0 and r or tostring(game:GetService('RbxAnalyticsService'):GetClientId())end)())))()`;
 }
 
 async function fetchOwnKey(discordId) {
