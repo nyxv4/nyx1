@@ -1,12 +1,21 @@
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   Events,
   MessageFlags,
+  ModalBuilder,
   REST,
   Routes,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import { commands } from './commands.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const requiredEnv = ['DISCORD_TOKEN', 'WORKER_URL', 'BOT_SECRET', 'ADMIN_IDS'];
 for (const name of requiredEnv) {
@@ -20,6 +29,9 @@ if (!['http:', 'https:'].includes(workerBase.protocol)) {
 const workerUrl = workerBase.toString().replace(/\/$/, '');
 const adminIds = new Set(process.env.ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean));
 if (adminIds.size === 0) throw new Error('ADMIN_IDS must contain at least one Discord user ID');
+
+const panelChannelId = process.env.PANEL_CHANNEL_ID?.trim() || '';
+const panelStatePath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.panel.json');
 
 const client = new Client({ intents: [] });
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -98,6 +110,106 @@ async function fetchOwnKey(discordId) {
   return result.found ? result.key : null;
 }
 
+async function redeemKey(discordId, key) {
+  const result = await callWorker('/api/redeem', { key: key.trim().toUpperCase(), discord_id: discordId });
+  return result.already_redeemed
+    ? 'That key is already linked to your Discord account.'
+    : `Key redeemed. Tier: **${result.key.tier}**. Press **Get Script** below for your loader.`;
+}
+
+async function resetHwid(discordId) {
+  const result = await callWorker('/api/admin/resethwid', { discord_id: discordId });
+  return `HWID reset. Resets used: **${result.key.resets}/3**. Your next valid loader request will bind the new HWID.`;
+}
+
+// ---- catvape-style button panel ----
+
+const PANEL_CONTENT = [
+  '**nyx**',
+  '**get your script, reset your hwid or check your key below.**',
+].join('\n');
+
+function buildPanel() {
+  return {
+    content: PANEL_CONTENT,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('nyx:getscript').setLabel('Get Script').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('nyx:resethwid').setLabel('Reset HWID').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('nyx:mykey').setLabel('My Key').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('nyx:redeem').setLabel('Redeem Key').setStyle(ButtonStyle.Primary),
+      ),
+    ],
+  };
+}
+
+async function postOrUpdatePanel(client) {
+  if (!panelChannelId) return;
+  try {
+    const channel = await client.channels.fetch(panelChannelId);
+    if (!channel || !channel.isTextBased()) {
+      console.error('PANEL_CHANNEL_ID is not a text channel.');
+      return;
+    }
+    let state = null;
+    try { state = JSON.parse(fs.readFileSync(panelStatePath, 'utf8')); } catch {}
+    const payload = buildPanel();
+    if (state?.channelId === channel.id && state?.messageId) {
+      try {
+        const msg = await channel.messages.fetch(state.messageId);
+        await msg.edit(payload);
+        console.log('Panel message updated.');
+        return;
+      } catch {}
+    }
+    const msg = await channel.send(payload);
+    fs.writeFileSync(panelStatePath, JSON.stringify({ channelId: channel.id, messageId: msg.id }));
+    console.log('Panel message posted.');
+  } catch (error) {
+    console.error('Panel post failed:', error.message);
+  }
+}
+
+async function handleButton(interaction) {
+  const id = interaction.customId;
+  if (id === 'nyx:redeem') {
+    const modal = new ModalBuilder().setCustomId('nyx:redeem_modal').setTitle('Redeem NYX Key');
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('key')
+        .setLabel('Your key (NYX-XXXX-XXXX-XXXX)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(19),
+    ));
+    return interaction.showModal(modal);
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    if (id === 'nyx:getscript') return await handleGetScript(interaction);
+    if (id === 'nyx:resethwid') return await interaction.editReply(await resetHwid(interaction.user.id));
+    if (id === 'nyx:mykey') return await handleMyKey(interaction);
+  } catch (error) {
+    console.error(`Button ${id} failed:`, error.message);
+    const message = error instanceof WorkerError ? error.message : 'The request failed. Please try again shortly.';
+    return interaction.editReply(`Could not complete that: ${message}`);
+  }
+}
+
+async function handleModal(interaction) {
+  if (interaction.customId !== 'nyx:redeem_modal') return;
+  const key = interaction.fields.getTextInputValue('key');
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    return await interaction.editReply(await redeemKey(interaction.user.id, key));
+  } catch (error) {
+    console.error('Redeem modal failed:', error.message);
+    const message = error instanceof WorkerError ? error.message : 'The request failed. Please try again shortly.';
+    return interaction.editReply(`Could not redeem: ${message}`);
+  }
+}
+
 async function handleGetScript(interaction) {
   const record = await fetchOwnKey(interaction.user.id);
   if (!record) return interaction.editReply('No key is linked to your Discord account. Redeem one with `/redeem` first.');
@@ -161,9 +273,26 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error('Slash command registration failed:', error.message);
   }
   console.log(`NYX bot online as ${readyClient.user.tag}.`);
+  await postOrUpdatePanel(readyClient);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isButton()) {
+    try {
+      return await handleButton(interaction);
+    } catch (error) {
+      console.error('Button interaction failed:', error.message);
+    }
+    return;
+  }
+  if (interaction.isModalSubmit()) {
+    try {
+      return await handleModal(interaction);
+    } catch (error) {
+      console.error('Modal interaction failed:', error.message);
+    }
+    return;
+  }
   if (!interaction.isChatInputCommand()) return;
 
   const command = interaction.commandName;
@@ -179,18 +308,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case 'getscript':
         return await handleGetScript(interaction);
       case 'redeem': {
-        const key = interaction.options.getString('key', true).trim().toUpperCase();
-        const result = await callWorker('/api/redeem', { key, discord_id: interaction.user.id });
-        return await interaction.editReply(result.already_redeemed
-          ? 'That key is already linked to your Discord account.'
-          : `Key redeemed. Tier: **${result.key.tier}**. Run \`/getscript\` for your loader.`);
+        const key = interaction.options.getString('key', true);
+        return await interaction.editReply(await redeemKey(interaction.user.id, key));
       }
       case 'mykey':
         return await handleMyKey(interaction);
-      case 'resethwid': {
-        const result = await callWorker('/api/admin/resethwid', { discord_id: interaction.user.id });
-        return await interaction.editReply(`HWID reset. Resets used: **${result.key.resets}/3**. Your next valid loader request will bind the new HWID.`);
-      }
+      case 'resethwid':
+        return await interaction.editReply(await resetHwid(interaction.user.id));
       case 'createkeys': {
         const amount = interaction.options.getInteger('amount', true);
         const tier = interaction.options.getString('tier', true);
