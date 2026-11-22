@@ -10499,13 +10499,14 @@ run(function()
 								end
 							end
 
-							if not isClaw and (tick() - lastAnimTime) >= animPeriod then
+							local swingInterval = math.max(getWeaponAttackSpeed(sword, meta), animPeriod)
+							if not isClaw and (tick() - lastAnimTime) >= swingInterval then
 								local allowSwingAnim = not (LegitAura and LegitAura.Enabled)
 								if allowSwingAnim then
 									-- Fixed animation period to prevent stuttering/doubling
 									local swingSpeed = (SwingTime and SwingTime.Enabled)
 										and math.max(SwingTimeSlider.Value, 0.11)
-										or animPeriod
+										or swingInterval
 									lastAnimTime = tick()
 									AnimDelay = tick() + swingSpeed
 									if isOnTinker() then
