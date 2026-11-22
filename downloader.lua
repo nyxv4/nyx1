@@ -1,3 +1,25 @@
+local NYX_KEY = getgenv and getgenv().NYX_KEY or nil
+local NYX_HWID = getgenv and getgenv().NYX_HWID or nil
+if type(NYX_KEY) ~= 'string' or type(NYX_HWID) ~= 'string' then
+	error('NYX requires a valid key. Get your loader from the Discord server.', 0)
+end
+local authOk = false
+for _ = 1, 3 do
+	local suc, res = pcall(function()
+		return game:HttpGet('https://script-whitelist.nyx178bedwars.workers.dev/api/verify?key=' .. NYX_KEY .. '&hwid=' .. NYX_HWID, true)
+	end)
+	if suc and type(res) == 'string' and res:find('"ok":true', 1, true) then
+		authOk = true
+		break
+	end
+	task.wait(1)
+end
+if not authOk then
+	error('NYX key is invalid, expired, or revoked. Re-check it in the Discord server.', 0)
+end
+getgenv().NYX_KEY = nil
+getgenv().NYX_HWID = nil
+
 local _args = ...
 if type(_args) ~= "table" then _args = {} end
 local pinnedCommit = type(_args.Commit) == 'string' and _args.Commit ~= '' and _args.Commit or nil

@@ -239,6 +239,29 @@ async function sha256Hex(value) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+async function verify(request, env) {
+  const url = new URL(request.url);
+  const key = normalizeKey(url.searchParams.get('key'));
+  const hwid = (url.searchParams.get('hwid') || '').trim();
+  if (!KEY_PATTERN.test(key) || hwid.length < 8 || hwid.length > 256) {
+    return json({ ok: false, error: 'invalid key or hwid' }, 403);
+  }
+  let record = null;
+  try {
+    record = await readRecord(env, key);
+  } catch {
+    return json({ ok: false, error: 'authorization service is unavailable' }, 503);
+  }
+  const valid = record
+    && record.status !== 'unused'
+    && record.status !== 'banned'
+    && !isExpired(record)
+    && ['redeemed', 'active'].includes(record.status)
+    && Boolean(record.discord_id)
+    && (!record.hwid || record.hwid === hwid);
+  return valid ? json({ ok: true }) : json({ ok: false, error: 'invalid or expired key' }, 403);
+}
+
 async function getScript(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (!env.GETSCRIPT_RATE_LIMITER) return loaderError('service is unavailable');
@@ -303,7 +326,8 @@ async function getScript(request, env) {
     return loaderError('script source is temporarily unavailable');
   }
   if (!source.trim()) return loaderError('script source is empty');
-  return new Response(source, {
+  const auth = `getgenv().NYX_KEY=[==[${key}]==];getgenv().NYX_HWID=[==[${hwid}]==];\n`;
+  return new Response(auth + source, {
     status: 200,
     headers: {
       'content-type': 'text/plain; charset=utf-8',
@@ -335,6 +359,9 @@ export default {
     }
     if (pathname === '/getscript' && request.method === 'GET') {
       return getScript(request, env);
+    }
+    if (pathname === '/api/verify' && request.method === 'GET') {
+      return verify(request, env);
     }
     if (pathname.startsWith('/api/')) {
       try {
