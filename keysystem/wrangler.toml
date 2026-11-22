@@ -11,7 +11,7 @@ id = "PASTE_KV_NAMESPACE_ID_HERE"
 
 # Non-secret config:
 [vars]
-SCRIPT_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/main.lua"
+SCRIPT_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/downloader.lua"
 
 # Secrets (wrangler secret put):
 #   BOT_SECRET  = shared password between bot and worker

@@ -148,51 +148,51 @@ async function handleAdminKeyInfo(env, body) {
 	return json({ ok: true, ...safe, expired: isExpired(record) });
 }
 
-async function handleAuth(env, body, request) {
-	// public endpoint - called by the loader. rate limited per IP.
+// GET /getscript?key=...&hwid=... -> validates key+HWID then returns the
+// script source as plain text so loadstring() can run it. Errors are
+// returned as warn("...") Lua so the loader's `if f then f() else warn(e)`
+// always shows a readable message.
+function luaWarn(msg) {
+	return 'warn(' + JSON.stringify(msg) + ')';
+}
+
+async function handleGetScript(env, url, request) {
 	const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 	const failKey = 'fail:' + ip;
 	const fails = parseInt((await env.KEYS.get(failKey)) || '0');
 	if (fails >= AUTH_FAIL_LIMIT) {
-		return json({ ok: false, error: 'too_many_attempts' }, 429);
+		return new Response(luaWarn('NYX: too many attempts, try later'), { headers: { 'Content-Type': 'text/plain' } });
 	}
 
-	const record = await getKey(env, (body.key || '').toUpperCase());
-	const hwid = String(body.hwid || '');
-
-	const fail = async () => {
+	const fail = async (msg) => {
 		await env.KEYS.put(failKey, String(fails + 1), { expirationTtl: AUTH_FAIL_WINDOW });
-		return json({ ok: false, error: 'invalid_key_or_hwid' }, 403);
+		return new Response(luaWarn(msg), { headers: { 'Content-Type': 'text/plain' } });
 	};
 
-	if (!record || isExpired(record)) return fail();
-	if (record.status !== 'redeemed' && record.status !== 'active') return fail();
-	if (!hwid) return fail();
-
-	if (!record.hwid) {
-		// first run - bind this device
-		record.hwid = hwid;
-		record.status = 'active';
-		await putKey(env, record);
-	} else if (record.hwid !== hwid) {
-		return json({ ok: false, error: 'hwid_mismatch' }, 403);
-	}
-
-	// success - clear fail counter
-	if (fails > 0) await env.KEYS.delete(failKey);
-	return json({ ok: true, url: env.SCRIPT_URL });
-}
-
-async function handleScript(env, url) {
-	// GET /api/script?key=...&hwid=... -> validates then redirects to the real script
-	const key = url.searchParams.get('key') || '';
+	const record = await getKey(env, (url.searchParams.get('key') || '').toUpperCase());
 	const hwid = url.searchParams.get('hwid') || '';
-	const record = await getKey(env, key.toUpperCase());
-	if (!record || isExpired(record)) return json({ ok: false, error: 'invalid_key' }, 403);
-	if ((record.status !== 'redeemed' && record.status !== 'active') || record.hwid !== hwid) {
-		return json({ ok: false, error: 'hwid_mismatch' }, 403);
+
+	if (!record) return fail('NYX: invalid key');
+	if (isExpired(record)) return fail('NYX: key expired');
+	if (record.status === 'banned') return fail('NYX: key banned');
+	if (record.status !== 'redeemed' && record.status !== 'active') return fail('NYX: key not redeemed');
+
+	// HWID binding - only enforced when the loader sends a hwid param
+	if (hwid) {
+		if (!record.hwid) {
+			record.hwid = hwid;
+			record.status = 'active';
+			await putKey(env, record);
+		} else if (record.hwid !== hwid) {
+			return new Response(luaWarn('NYX: HWID mismatch - run /resethwid in Discord'), { headers: { 'Content-Type': 'text/plain' } });
+		}
 	}
-	return Response.redirect(env.SCRIPT_URL, 302);
+
+	if (fails > 0) await env.KEYS.delete(failKey);
+
+	const upstream = await fetch(env.SCRIPT_URL);
+	const source = await upstream.text();
+	return new Response(source, { headers: { 'Content-Type': 'text/plain' } });
 }
 
 export default {
@@ -200,8 +200,8 @@ export default {
 		const url = new URL(request.url);
 		const path = url.pathname;
 
-		if (request.method === 'GET' && path === '/api/script') {
-			return handleScript(env, url);
+		if (request.method === 'GET' && path === '/getscript') {
+			return handleGetScript(env, url, request);
 		}
 		if (request.method !== 'POST') return json({ ok: false, error: 'not_found' }, 404);
 
@@ -212,7 +212,6 @@ export default {
 			case '/api/admin/resethwid': return handleAdminResetHwid(env, body);
 			case '/api/admin/discordkey': return handleAdminDiscordKey(env, body);
 			case '/api/admin/keyinfo': return handleAdminKeyInfo(env, body);
-			case '/api/auth': return handleAuth(env, body, request);
 			default: return json({ ok: false, error: 'not_found' }, 404);
 		}
 	},

@@ -127,10 +127,17 @@ In your Discord server:
 
 1. You sell them a key (however you want — DM, TikTok, etc.)
 2. They join your Discord, run `/redeem NYX-XXXX-XXXX-XXXX`
-3. They run `/getscript` → get `nyx_loader.lua` in DMs
-4. They save it, set their key via `getsenv('NYX_KEY', 'NYX-...')` or put it in `nyx_key.txt`, run it in their executor
-5. First run binds their PC's HWID to the key automatically
-6. Every run after checks key + HWID against your Worker
+3. They run `/getscript` → get `nyx_loader.lua` in DMs with **their key baked in**
+4. They save it and run it in their executor — it looks like:
+
+```lua
+getgenv().script_key = "NYX-XXXX-XXXX-XXXX"
+local f, e = loadstring(game:HttpGet("https://<worker>/getscript?key=NYX-XXXX-XXXX-XXXX&hwid=" .. tostring(hwid)))
+if f then f() else warn(e) end
+```
+
+5. The worker checks the key, binds their HWID on first run, and returns `downloader.lua` — `loadstring` runs it like normal
+6. Bad key / HWID mismatch / expired → the worker returns `warn("NYX: ...")` so they see exactly why it failed
 
 ---
 

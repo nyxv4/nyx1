@@ -1,6 +1,17 @@
 // NYX Keysystem - Discord bot
 // Requires: discord.js v14
 // Env vars: DISCORD_TOKEN, WORKER_URL, BOT_SECRET, ADMIN_IDS (comma-separated Discord user IDs)
+// .env file in this folder is loaded automatically (gitignored).
+
+const fs = require('fs');
+const path = require('path');
+
+try {
+	for (const line of fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n')) {
+		const m = line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/);
+		if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+	}
+} catch {}
 
 const {
 	Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder,
@@ -37,28 +48,10 @@ function isAdmin(userId) {
 	return ADMIN_IDS.includes(String(userId));
 }
 
-// Loader sent to buyers via /getscript. __WORKER_URL__ is replaced at send time.
-const LOADER_LUA = `-- NYX Loader - requires a valid key
-local WORKER = "__WORKER_URL__"
-
-local function getKey()
-	if getsenv then
-		local ok, v = pcall(getsenv, "NYX_KEY")
-		if ok and type(v) == "string" and #v > 0 then return v end
-	end
-	if readfile then
-		local ok, v = pcall(readfile, "nyx_key.txt")
-		if ok and type(v) == "string" and #v > 0 then return v:match("[^%s]+") end
-	end
-	if shared and shared.NYX_KEY then return shared.NYX_KEY end
-	return nil
-end
-
-local key = getKey()
-if not key then
-	warn("[NYX] No key found. Set NYX_KEY env var, put your key in nyx_key.txt, or set shared.NYX_KEY")
-	return
-end
+// Loader sent to buyers via /getscript. __WORKER_URL__ and __KEY__ are
+// replaced per-user at send time. &hwid= is appended so the worker can bind
+// the device - same loader format, just with the hwid param added.
+const LOADER_LUA = `getgenv().script_key = "__KEY__"
 
 local hwid = nil
 if gethwid then
@@ -72,38 +65,13 @@ if not hwid then
 	if ok and type(v) == "string" then hwid = v end
 end
 if not hwid then hwid = "unknown" end
-
--- hash hwid if the executor supports it
 if crypt and crypt.hash then
 	local ok, h = pcall(crypt.hash, hwid, "sha256")
 	if ok and type(h) == "string" then hwid = h end
-elseif sha256 then
-	local ok, h = pcall(sha256, hwid)
-	if ok and type(h) == "string" then hwid = h end
 end
 
-local function httpPost(url, body)
-	local http = (syn and syn.request) or http_request or request or http
-	if not http then return nil end
-	local payload = '{"key":"' .. key:gsub('"', '') .. '","hwid":"' .. tostring(hwid):gsub('"', '') .. '"}'
-	local ok, res = pcall(http, {
-		Url = url,
-		Method = "POST",
-		Headers = { ["Content-Type"] = "application/json" },
-		Body = payload,
-	})
-	if not ok or not res then return nil end
-	return res.Body and game:GetService("HttpService"):JSONDecode(res.Body) or nil
-end
-
-local auth = httpPost(WORKER .. "/api/auth", { key = key, hwid = hwid })
-if not auth or not auth.ok then
-	warn("[NYX] Auth failed: " .. tostring(auth and auth.error or "no response"))
-	return
-end
-
-loadstring(game:HttpGet(auth.url))()
-`;
+local f, e = loadstring(game:HttpGet("__WORKER_URL__/getscript?key=__KEY__&hwid=" .. tostring(hwid)))
+if f then f() else warn(e) end`;
 
 const commands = [
 	new SlashCommandBuilder().setName('createkeys').setDescription('Generate keys (admin)')
@@ -145,7 +113,6 @@ client.on('interactionCreate', async interaction => {
 				const res = await api('/api/admin/createkeys', { amount, tier });
 				if (!res.ok) return interaction.editReply('Failed to create keys.');
 				const text = res.keys.join('\n');
-				// keys can exceed message limit - split
 				const chunks = text.match(/.{1,1900}/gs) || [text];
 				for (const chunk of chunks) {
 					await interaction.followUp({ content: '```\n' + chunk + '\n```', ephemeral: true });
@@ -184,7 +151,7 @@ client.on('interactionCreate', async interaction => {
 				if (!res.ok || !res.key || res.status === 'unused' || res.expired) {
 					return interaction.editReply('You need a redeemed, unexpired key first. Use `/redeem`.');
 				}
-				const loader = LOADER_LUA.replace('__WORKER_URL__', WORKER_URL);
+				const loader = LOADER_LUA.replace(/__WORKER_URL__/g, WORKER_URL).replace(/__KEY__/g, res.key);
 				try {
 					await user.send({
 						content: 'Here is your NYX loader. Save it as `loader.lua` and run it in your executor.',
