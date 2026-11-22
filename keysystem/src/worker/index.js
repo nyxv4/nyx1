@@ -1,7 +1,8 @@
 const TIERS = Object.freeze({ lifetime: null, '7d': 7, '30d': 30, '90d': 90 });
 const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const KEY_PATTERN = /^NYX-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
-const MAX_RESETS = 3;
+const MAX_RESETS_PER_WEEK = 10;
+const RESET_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_CREATE_AMOUNT = 100;
 
 class ApiError extends Error {
@@ -215,7 +216,16 @@ async function resetHwid(body, env) {
   if (record.status === 'banned') throw new ApiError(403, 'This key is banned.');
   if (isExpired(record)) throw new ApiError(403, 'This key has expired.');
   if (!record.hwid) throw new ApiError(409, 'No HWID is currently bound to this key.');
-  if (record.resets >= MAX_RESETS) throw new ApiError(403, 'The maximum of 3 HWID resets has been used.');
+
+  const now = Date.now();
+  const windowStart = record.reset_window ? Date.parse(record.reset_window) : 0;
+  if (!Number.isFinite(windowStart) || now - windowStart >= RESET_WINDOW_MS) {
+    record.resets = 0;
+    record.reset_window = new Date(now).toISOString();
+  }
+  if (record.resets >= MAX_RESETS_PER_WEEK) {
+    throw new ApiError(403, 'The maximum of 10 HWID resets per week has been used.');
+  }
 
   record.hwid = null;
   record.status = 'redeemed';

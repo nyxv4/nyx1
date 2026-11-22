@@ -117,7 +117,7 @@ async function redeemKey(discordId, key) {
 
 async function resetHwid(discordId) {
   const result = await callWorker('/api/admin/resethwid', { discord_id: discordId });
-  return `HWID reset. Resets used: **${result.key.resets}/3**. Your next valid loader request will bind the new HWID.`;
+  return `HWID reset. Resets used this week: **${result.key.resets}/10**. Your next valid loader request will bind the new HWID.`;
 }
 
 // ---- catvape-style button panel ----
@@ -239,7 +239,7 @@ async function handleMyKey(interaction) {
     `**Expires:** ${expiryText(record)}`,
     `**Injected:** ${record.injected_at ? dateText(record.injected_at) : 'Not injected yet'}`,
     `**HWID:** ${record.hwid ? 'Bound' : 'Not bound yet'}`,
-    `**HWID resets:** ${record.resets}/3`,
+    `**HWID resets:** ${record.resets}/10 this week`,
   ].join('\n'));
 }
 
@@ -253,7 +253,7 @@ async function handleKeyInfo(interaction) {
     `**Status:** ${visibleStatus(record)}`,
     `**Discord ID:** ${record.discord_id || '—'}`,
     `**HWID:** ${record.hwid ? 'Bound' : 'Not bound'}`,
-    `**Resets:** ${record.resets}/3`,
+    `**Resets:** ${record.resets}/10 this week`,
     `**Tier:** ${record.tier}`,
     `**Created:** ${dateText(record.created)}`,
     `**Expires:** ${expiryText(record)}`,
