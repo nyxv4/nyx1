@@ -1327,7 +1327,7 @@ run(function()
 	-- A single stale require path must not zero the whole bedwars table: hand
 	-- back an inert proxy for missing modules so everything else still loads.
 	local _missingModule
-	_missingModule = setmetatable(function() return _missingModule end, {
+	_missingModule = setmetatable({}, {
 		__index = function() return _missingModule end,
 		__call = function() return _missingModule end,
 	})
