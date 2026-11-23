@@ -1316,7 +1316,10 @@ components = {
 		end
 		
 		function optionapi:SetValue(value, pos, final)
-			if tonumber(value) == math.huge or value ~= value then return end
+			value = tonumber(value)
+			if not value or value ~= value or value == math.huge or value == -math.huge then return end
+			if optionsettings.Min then value = math.max(value, optionsettings.Min) end
+			if optionsettings.Max then value = math.min(value, optionsettings.Max) end
 			local check = self.Value ~= value
 			self.Value = value
 			tween:Tween(fill, uipallet.Tween, {
@@ -2255,11 +2258,12 @@ components = {
 		end
 		
 		function optionapi:Load(tab)
-			if self.Enabled ~= tab.Enabled then
+			local want = tab.Enabled == true
+			if self.Enabled ~= want then
 				self:Toggle()
 			end
 		end
-		
+
 		function optionapi:Color(hue, sat, val, rainbowcheck)
 			if self.Enabled then
 				tween:Cancel(knobholder)
@@ -5547,7 +5551,7 @@ function mainapi:Load(skipgui, profile)
 					object.ListEnabled = v.ListEnabled or {}
 					object:ChangeValue()
 				end
-				if v.Position then
+				if v.Position and v.Position.X and v.Position.Y then
 					object.Object.Position = UDim2.fromOffset(v.Position.X, v.Position.Y)
 				end
 			end
@@ -5592,7 +5596,7 @@ function mainapi:Load(skipgui, profile)
 				object.ListEnabled = v.ListEnabled or {}
 				object:ChangeValue()
 			end
-			if v.Position and object.Object then
+			if v.Position and v.Position.X and v.Position.Y and object.Object then
 				object.Object.Position = UDim2.fromOffset(v.Position.X, v.Position.Y)
 			end
 		end
@@ -5603,9 +5607,9 @@ function mainapi:Load(skipgui, profile)
 			if object.Options and v.Options then
 				self:LoadOptions(object, v.Options)
 			end
-			if v.Enabled ~= object.Enabled then
+			if (v.Enabled == true) ~= object.Enabled then
 				if skipgui then
-					if self.ToggleNotifications.Enabled then self:CreateNotification('Module Toggled', i.."<font color='#FFFFFF'> has been </font>"..(v.Enabled and "<font color='#5AFF5A'>Enabled</font>" or "<font color='#FF5A5A'>Disabled</font>").."<font color='#FFFFFF'>!</font>", 0.75) end
+					if self.ToggleNotifications.Enabled then self:CreateNotification('Module Toggled', i.."<font color='#FFFFFF'> has been </font>"..(v.Enabled == true and "<font color='#5AFF5A'>Enabled</font>" or "<font color='#FF5A5A'>Disabled</font>").."<font color='#FFFFFF'>!</font>", 0.75) end
 				end
 				object:Toggle(true)
 			end
@@ -5621,10 +5625,10 @@ function mainapi:Load(skipgui, profile)
 			if object.Options and v.Options then
 				self:LoadOptions(object, v.Options)
 			end
-			if object.Enabled ~= v.Enabled then
+			if object.Enabled ~= (v.Enabled == true) then
 				object:Toggle()
 			end
-			if v.Position and object.Children then
+			if v.Position and v.Position.X and v.Position.Y and object.Children then
 				object.Children.Position = UDim2.fromOffset(v.Position.X, v.Position.Y)
 			end
 		end
