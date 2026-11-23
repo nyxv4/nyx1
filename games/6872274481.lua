@@ -8592,21 +8592,24 @@ run(function()
 	end
 
 	local function attemptFire()
+		store.kaBlock = 'start'
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
-		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then return false end
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
+		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then store.kaBlock = 'projectile-hand' return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then store.kaBlock = 'fh-busy' return false end
 		
 		-- Add small delay after FastHits to prevent ghosting sword hits
 		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
+			store.kaBlock = 'proj-cooldown'
 			return false
 		end
 		
 		local v = resolveTarget()
-		if not v then return false end
+		if not v then store.kaBlock = 'no-target' return false end
 
 		local sword, meta = getAttackData()
-		if not sword or not meta then return false end
+		if not sword then store.kaBlock = 'no-sword' return false end
+		if not meta then store.kaBlock = 'no-meta' return false end
 
 		local weaponInst = sword.tool
 		pcall(function()
@@ -8617,14 +8620,14 @@ run(function()
 		end)
 
 		local char = lplr.Character
-		if not char or not char.PrimaryPart then return false end
+		if not char or not char.PrimaryPart then store.kaBlock = 'no-char' return false end
 		local tchar = v.Character
-		if not tchar or not tchar.Parent then return false end
+		if not tchar or not tchar.Parent then store.kaBlock = 'no-tchar' return false end
 		local selfPos = entitylib.character.RootPart.Position
 		local targetPos = v.RootPart and v.RootPart.Position
-		if not selfPos or not targetPos then return false end
+		if not selfPos or not targetPos then store.kaBlock = 'no-pos' return false end
 		local dist = (targetPos - selfPos).Magnitude
-		if dist > AttackRange.Value + 0 then return false end
+		if dist > AttackRange.Value + 0 then store.kaBlock = 'out-of-range' return false end
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -8640,17 +8643,19 @@ run(function()
 					inAir = math.abs(vy) > 3
 				end
 				if inAir then
-					if math.random(1, 100) > AirHitsChance.Value then return false end
+					if math.random(1, 100) > AirHitsChance.Value then store.kaBlock = 'airhit-roll' return false end
 				end
 			end
 		end
 
 		if sword.tool.Name:find('summoner_claw') then
 			pcall(function() KaidaController:request(tchar) end)
+			store.kaBlock = 'summoner-claw'
 			return false
 		end
 
 		if not FireAttackRemote(weaponInst, tchar, selfPos, targetPos) then
+			store.kaBlock = 'fire-fail'
 			markAttackResult(false)
 			return false
 		end
@@ -8748,6 +8753,17 @@ run(function()
 					if not ok and (tick() - lastAttemptFireError) >= 2 then
 						lastAttemptFireError = tick()
 						warn('[Killaura] attemptFire error: ' .. tostring(err))
+					end
+				end
+				-- throttled blocker report so a dead aura says why
+				local nowT = tick()
+				if nowT - (store._kaDiagT or 0) >= 5 then
+					store._kaDiagT = nowT
+					if (store.kaSentWindow and store.kaSentWindow.n or 0) == 0 then
+						warn(('[Killaura] blocked: %s period=%.3f range=%s targets(P=%s,N=%s)'):format(
+							tostring(store.kaBlock), kaPeriod, tostring(AttackRange and AttackRange.Value),
+							tostring(Targets and Targets.Players and Targets.Players.Enabled),
+							tostring(Targets and Targets.NPCs and Targets.NPCs.Enabled)))
 					end
 				end
 			end
