@@ -5592,7 +5592,9 @@ function mainapi:Load(skipgui, profile)
 				object.ListEnabled = v.ListEnabled or {}
 				object:ChangeValue()
 			end
-			object.Object.Position = UDim2.fromOffset(v.Position.X, v.Position.Y)
+			if v.Position and object.Object then
+				object.Object.Position = UDim2.fromOffset(v.Position.X, v.Position.Y)
+			end
 		end
 
 		for i, v in savedata.Modules do
@@ -5607,8 +5609,10 @@ function mainapi:Load(skipgui, profile)
 				end
 				object:Toggle(true)
 			end
-			object:SetBind(v.Bind)
-			object.Object.Bind.Visible = #v.Bind > 0
+			object:SetBind(v.Bind or {})
+			if object.Object.Bind then
+				object.Object.Bind.Visible = #(v.Bind or {}) > 0
+			end
 		end
 
 		for i, v in savedata.Legit do
@@ -5671,10 +5675,11 @@ function mainapi:Load(skipgui, profile)
 end
 
 function mainapi:LoadOptions(object, savedoptions)
+	if type(savedoptions) ~= 'table' then return end
 	for i, v in savedoptions do
 		local option = object.Options[i]
 		if not option then continue end
-		option:Load(v)
+		pcall(option.Load, option, v)
 	end
 end
 
