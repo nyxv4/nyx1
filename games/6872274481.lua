@@ -1324,6 +1324,19 @@ run(function()
 		repeat task.wait() until debug.getupvalue(Knit.Start, 1)
 	end
 
+	-- A single stale require path must not zero the whole bedwars table: hand
+	-- back an inert proxy for missing modules so everything else still loads.
+	local _missingModule
+	_missingModule = setmetatable(function() return _missingModule end, {
+		__index = function() return _missingModule end,
+		__call = function() return _missingModule end,
+	})
+	local _realRequire = require
+	local require = function(module, ...)
+		local ok, res = pcall(_realRequire, module, ...)
+		return ok and res or _missingModule
+	end
+
 	local Flamework = require(replicatedStorage['rbxts_include']['node_modules']['@flamework'].core.out).Flamework
 	local InventoryUtil = require(replicatedStorage.TS.inventory['inventory-util']).InventoryUtil
 	local Client = require(replicatedStorage.TS.remotes).default.Client

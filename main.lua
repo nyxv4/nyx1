@@ -392,6 +392,15 @@ if not guiFunc then
 	error('[NYX] syntax error in ' .. gui .. '.lua' .. '\n' .. errMsg .. context)
 end
 vape = guiFunc()
+if type(vape) == 'table' and type(vape.Categories) ~= 'table' then
+	local altSource = fetchFile('NYX/guis/new.lua', buildCommit)
+	local altFunc = altSource and loadstring(altSource, 'gui')
+	local altVape = altFunc and altFunc()
+	if type(altVape) == 'table' and type(altVape.Categories) == 'table' and altVape.Load then
+		warn('[NYX] selected GUI is incompatible, fell back to new')
+		vape = altVape
+	end
+end
 if not vape then
 	error('[NYX] GUI returned nil file may be corrupted try deleting NYX/guis/' .. gui .. '.lua and reinjecting.')
 end
