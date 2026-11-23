@@ -6942,27 +6942,19 @@ run(function()
 	local lastAttackTime = 0
 	local lastTargetTime = 0
 	local lastAnimTime = 0 -- Track when last animation was played to prevent doubling
-	local lastSwingAnim = 0 -- Gate for the real sword swing so it runs at the sword's own speed
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.296 -- fallback only; the real period comes from SwordTiming.resolvePeriod
+	local HIT_PERIOD = 0.296 -- Killaura hit period fallback matching SafeSpacing
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
-	local AURA_SWING_INTERVAL = 0.35 -- cosmetic only: matches the native sword swing; hits keep their own cadence
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
-	local kaLastSrv = 0 -- scheduled server time of the last accepted hit
-	local _kaPingScale, _kaPingAt = 1, 0
-	local function kaPingScale()
-		local now = tick()
-		if now - _kaPingAt >= 0.5 then
-			_kaPingAt = now
-			local p = netPing()
-			_kaPingScale = 1 + math.clamp((p - 0.12) * 0.4, 0, 0.12)
-		end
-		return _kaPingScale
-	end
+	local kaNextFire = 0
+	local kaSync = 0
+	local kaSyncSrv = 0
+	local kaLastSrv = 0
+	local kaLastSend = 0
 	local lastProjectileTime = 0 -- Track when last projectile was fired
 	local glueRemote = {InvokeServer = function() end}
 	local projectileRemote = {InvokeServer = function() end}
@@ -6972,8 +6964,8 @@ run(function()
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
 		SafeSpacing  = 0.295, -- Stealth Mode delay
-		HighSpacing  = 0.2855, -- spacing used by the Dynamic/Advanced calculation
-		HitFloor     = 0.292, -- the server's minimum allowed time between hits. Going below this will cause ghost hits.
+		HighSpacing  = 0.2855, -- spacing in each hits for Advanced Mode only
+		HitFloor     = 0.292, --  he server's minimum allowed time between hits. Going below this will cause ghost hits.
 		GapFloor     = 0.2945, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
 		CooldownCorrection = (0.017999999225139618 / 10) + 0.013412,
@@ -7045,21 +7037,26 @@ run(function()
 		return preciseRemainder
 	end
 
-	-- The server, not the client, caps how often a hit lands. Retrying faster than that cap costs
-	-- nothing and makes a late frame harmless, while a gap that lands just outside a window costs a
-	-- whole period. This is the Stealth/Dynamic mapping the consistent build used.
-	function SwordTiming.resolvePeriod(meta)
+	local function getAttackDelay(meta)
 		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
-		local speed = (meta and meta.sword and meta.sword.attackSpeed) or 0.3
-		local delay
+		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
+		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
+		local Budget = 0
+		local Hits = 35
+		
+		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
+		local effectiveDelay
 		if mode == 'Dynamic' then
-			delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
+			effectiveDelay = dynDelay
 		elseif mode == 'Advanced Mode' then
-			delay = 49.55
+			effectiveDelay = 49.55
 		else
-			delay = 50
+			effectiveDelay = 50
 		end
-		return quantize240(SwordTiming.Calculate(speed, 'Dynamic', delay, 0, 35))
+		
+		-- This decouples hit registration from animation speed
+		local Spacing = SwordTiming.Calculate(Speed, 'Dynamic', effectiveDelay, Budget, Hits)
+		return quantize240(Spacing)
 	end
 
 	local function markAttackResult(success)
@@ -7117,7 +7114,6 @@ run(function()
 		local payload = {
 			weapon = weapon,
 			chargedAttack = {chargeRatio = 0},
-			lastSwingServerTimeDelta = 0.5,
 			entityInstance = entityInstance,
 			validate = {
 				raycast = {
@@ -7190,25 +7186,6 @@ run(function()
 		end
 		local meta = bedwars.ItemMeta and bedwars.ItemMeta[toolName]
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
-	end
-
-	-- True when the held item is definitely not a melee weapon (blocks, bows,
-	-- utility items). Keeps sword swing visuals off while building/aiming.
-	local function handIsNonMelee()
-		local live = liveHandTool()
-		if live then return not isMeleeWeapon(live.Name) end
-		return store.hand ~= nil and store.hand.toolType == 'block'
-	end
-
-	-- True while a block/placeable is in hand. Building is deliberate, so the
-	-- aura stands down instead of fighting the player's own block placement.
-	local function handIsBlock()
-		local live = liveHandTool()
-		if live then
-			local meta = bedwars.ItemMeta and bedwars.ItemMeta[live.Name]
-			if meta then return meta.block == true end
-		end
-		return store.hand ~= nil and store.hand.toolType == 'block'
 	end
 
 	local function computeAttackData()
@@ -7286,136 +7263,57 @@ run(function()
 		end
 	end
 
-	-- The game's swing is two animations: the character's third-person list and the viewmodel's
-	-- first-person list. Play those exact lists at the sword's own speed, and use playSwordEffect
-	-- only for its sound/effects (playAnimation = false).
-	local swingCycle = 0
-	local SWING_ASSET_FALLBACK = {
-		SWORD_SWING = 'rbxassetid://4947108314',
-		FP_SWING_SWORD = 'rbxassetid://8089691925',
-	}
+	local function getWeaponAttackSpeed(sword, meta)
+		if not sword or not sword.tool then return HIT_PERIOD end
+		local toolName = sword.tool.Name:lower()
 
-	-- Item meta stores swing animations either as asset ids or as AnimationType values. Resolve both,
-	-- then play the track the way the game does (Action priority on the model's own Animator).
-	local function swingAssetId(value)
-		if value == nil then return nil end
-		if type(value) == 'string' and value:find('^rbxassetid://') then return value end
-		local util = bedwars.GameAnimationUtil
-		if util and util.getAssetId then
-			local ok, id = pcall(util.getAssetId, util, value)
-			if ok and type(id) == 'string' and id ~= '' then return id end
-		end
-		local types = bedwars.AnimationType
-		local name = type(value) == 'number' and type(types) == 'table' and types[value] or value
-		if type(name) == 'string' then
-			return SWING_ASSET_FALLBACK[name]
-		end
-		return nil
-	end
-
-	-- One track per animator+asset, reused. Building a new Animation + LoadAnimation on every
-	-- swing ran inside the hit path and left an Animation instance behind each call.
-	local swingTrackCache = setmetatable({}, {__mode = 'k'})
-	local function playSwingTrack(model, assetId)
-		if not assetId or typeof(model) ~= 'Instance' then return nil end
-		local humanoid = model:FindFirstChildOfClass('Humanoid')
-		local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
-		if not animator then return end
-		local cache = swingTrackCache[animator]
-		if not cache then
-			cache = {}
-			swingTrackCache[animator] = cache
-		end
-		local cached = cache[assetId]
-		if cached and pcall(cached.Play, cached) then
-			return cached
-		end
-		cache[assetId] = nil
-		local animation = Instance.new('Animation')
-		animation.AnimationId = assetId
-		local ok, track = pcall(animator.LoadAnimation, animator, animation)
-		animation:Destroy()
-		if not (ok and track) then return end
-		track.Priority = Enum.AnimationPriority.Action
-		cache[assetId] = track
-		track:Play()
-		return track
-	end
-
-	local function isRawAnimId(value)
-		return type(value) == 'string' and value:find('^rbxassetid://') ~= nil
-	end
-
-	local lastThirdTrack
-	local auraSwingUntil = 0
-	local function playAuraSwing(meta, sword)
-		local data = meta and meta.sword
-		if not data then return end
-		local types = bedwars.AnimationType or {}
-		local third = data.swingAnimations
-		if type(third) ~= 'table' or #third == 0 then
-			if types.SWORD_SWING ~= nil then
-				third = {types.SWORD_SWING}
+		if toolName:find('frosty_hammer') then
+			local speedLvl = lplr:GetAttribute('speed') or sword.tool:GetAttribute('speed') or 0
+			if speedLvl == 3 then
+				return 0.25
+			elseif speedLvl == 2 then
+				return 0.28
+			elseif speedLvl == 1 then
+				return 0.32
 			else
-				third = {SWING_ASSET_FALLBACK.SWORD_SWING}
-			end
-		end
-		local first = data.firstPersonSwingAnimations
-		if type(first) ~= 'table' or #first == 0 then
-			if types.FP_SWING_SWORD ~= nil then
-				first = {types.FP_SWING_SWORD}
-			else
-				first = {SWING_ASSET_FALLBACK.FP_SWING_SWORD}
+				return 0.35
 			end
 		end
 
-		local function pick(list)
-			if type(list) ~= 'table' or #list == 0 then return nil end
-			if data.randomizeSwingAnimations then
-				return list[math.random(1, #list)]
-			end
-			return list[math.min(swingCycle, #list - 1) + 1]
-		end
-		local thirdAnim, firstAnim = pick(third), pick(first)
-		if type(third) == 'table' and #third > 0 then
-			swingCycle = (swingCycle + 1) % #third
+		if meta and meta.sword and meta.sword.attackSpeed then
+			return meta.sword.attackSpeed
 		end
 
-		local okThird, thirdId = pcall(swingAssetId, thirdAnim)
-		if okThird and thirdId then
-			if lastThirdTrack then
-				pcall(lastThirdTrack.Stop, lastThirdTrack, 0)
-			end
-			lastThirdTrack = playSwingTrack(lplr.Character, thirdId)
-			local trackLen = lastThirdTrack and lastThirdTrack.Length or 0
-			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, trackLen * 0.9)
-		end
+		return HIT_PERIOD
+	end
 
-		local viewmodel = bedwars.ViewmodelController
-		if viewmodel and viewmodel.playAnimation and not isRawAnimId(firstAnim) then
-			pcall(function() viewmodel:playAnimation(firstAnim) end)
-		else
-			local okFirst, firstId = pcall(swingAssetId, firstAnim)
-			if okFirst and firstId then
-				local camera = workspace.CurrentCamera
-				pcall(playSwingTrack, camera and camera:FindFirstChild('Viewmodel'), firstId)
-			end
-		end
-
-		local controller = bedwars.SwordController
-		if controller then
-			pcall(function()
-				local skin = sword and sword.itemSkin
-				controller:playSwordEffect(meta, false, {itemSkin = skin, playAnimation = false})
-			end)
-			controller.lastSwing = tick()
-		end
-
-		-- Clients only render a swing when the game announces one over the sync namespace.
+	-- Play First-Person & Viewmodel Swing Animation (Supports All Hephaestus Chainsaw Tiers & Standard Swords)
+	local function triggerFirstPersonSwing(meta)
 		pcall(function()
+			local tool = store.hand and store.hand.tool
+			local toolName = tool and tool.Name:lower() or ""
+
+			-- 1. Fire ClientSyncEvent SwordSwing
 			local syncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
-			local event = syncEvents and syncEvents:Get('SwordSwing')
-			if event then event:Fire({player = lplr}) end
+			if syncEvents and syncEvents:Get('SwordSwing') then
+				syncEvents:Get('SwordSwing'):Fire({
+					player = lplr
+				})
+			end
+
+			-- 2. Play Sword Effect if meta is available (pass false to prevent forcing weapon-speed animation reset)
+			if bedwars.SwordController and meta then
+				bedwars.SwordController:playSwordEffect(meta, false)
+			end
+
+			-- 3. Force Viewmodel & Arm Swing for Wood/Base Chainsaw & All Tiers
+			if bedwars.ViewmodelController and bedwars.ViewmodelController.playAnimation then
+				if toolName:find('chainsaw') or toolName:find('tinker') or toolName:find('wood') then
+					bedwars.ViewmodelController:playAnimation(bedwars.AnimationType.SWORD_SWING or bedwars.AnimationType.FP_USE_ITEM or 15)
+				elseif bedwars.AnimationType and bedwars.AnimationType.SWORD_SWING then
+					bedwars.ViewmodelController:playAnimation(bedwars.AnimationType.SWORD_SWING)
+				end
+			end
 		end)
 	end
 
@@ -7745,14 +7643,14 @@ run(function()
 		return _projectilesCache
 	end
 
-	local fhBusy = false
-
 	local function canShoot(proj)
-		return tick() > (FireRates[proj[1].itemType] or 0) and tick() > LastShot and not FastHitPending and not fhBusy
+		return tick() > (FireRates[proj[1].itemType] or 0) and tick() > LastShot and not FastHitPending
 	end
 
 	local sharedFastHitsRayParams = RaycastParams.new()
 	sharedFastHitsRayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local fhBusy = false
 
 	local function fhInAngle(v)
 		if not AngleSlider or AngleSlider.Value >= 360 then return true end
@@ -7767,54 +7665,18 @@ run(function()
 		return math.acos(math.clamp(flatLook.Unit:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
 	end
 
-	local function fhAwaitHand(tool, timeout)
-		local name = tool.Name
-		local deadline = tick() + timeout
-		while tick() < deadline do
-			local hand = store.hand and store.hand.tool
-			if hand and (hand == tool or hand.Name == name) then return true end
-			task.wait()
-		end
-		return false
-	end
-
-	local function fhSwapTimeout()
-		return math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
-	end
-
-	-- The server only accepts the shot if its own hand already holds the tool, so wait for the
-	-- equip round trip instead of firing after a fixed sleep.
-	local fhHubTool = nil
-	local fhLegitShot = false
 	local function fhEquipAwait(tool)
 		if not tool or not tool.Parent then return false end
-		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
-		local handNow = store.hand and store.hand.tool
-		if check and check.Value == tool and handNow and (handNow == tool or handNow.Name == tool.Name) then return true end
-		local switchedNow = false
-		pcall(function() switchedNow = switchItem(tool, 0) == true end)
-		if not switchedNow then return false end
-		fhHubTool = tool
-		local timeout = fhSwapTimeout()
-		if fhAwaitHand(tool, timeout) then return true end
-		pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = tool}) end)
-		return fhAwaitHand(tool, math.min(timeout, 0.2))
+		local success = pcall(switchItem, tool, 0.0475)
+		return success
 	end
 
 	local fhRestoreToken = 0
-	local fhShotSeq = 0
 	local function fhRestoreSword()
-		if fhLegitShot then return end
 		local sw = store.tools.sword
 		if not sw or not sw.tool or not sw.tool.Parent then return end
 		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 		if not check then return end
-		-- If the player picked something else while the shot was in flight, that is their hand now.
-		if fhHubTool and check.Value and check.Value ~= fhHubTool and check.Value.Parent then
-			fhHubTool = nil
-			return
-		end
-		fhHubTool = nil
 		fhRestoreToken = fhRestoreToken + 1
 		local token = fhRestoreToken
 		check.Value = sw.tool
@@ -7825,7 +7687,6 @@ run(function()
 				if token ~= fhRestoreToken then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
-				if isProjectileTool(liveHandTool()) then return end
 				if check.Value ~= sw.tool or (store.hand and store.hand.tool ~= sw.tool) then
 					check.Value = sw.tool
 					pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
@@ -7837,7 +7698,6 @@ run(function()
 	end
 
 	local _fhVelHistory = {}
-	local _fhVelClock = 0
 	local _fhPing = 0.1
 	local _fhPingClock = 0
 	local _fhIdChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -7854,45 +7714,21 @@ run(function()
 	local function getFHPing()
 		if tick() - _fhPingClock < 1 then return _fhPing end
 		_fhPingClock = tick()
-		_fhPing = math.clamp(netPing(), 0.02, 1)
+		-- Use store.ping.total for direct ping measurement (more accurate than game stats)
+		local val = (store.ping and store.ping.total) or 0
+		_fhPing = math.clamp(val, 0.02, 1)
 		return _fhPing
 	end
 
 	local function smoothedVelocity(ent, targetPart)
-		local rawVel = targetPart.AssemblyLinearVelocity or Vector3.zero
+		local rawVel = targetPart.AssemblyLinearVelocity or targetPart.Velocity or Vector3.zero
 		local key = tostring(ent)
-		local now = tick()
-		local entry = _fhVelHistory[key]
-		if not entry then
-			_fhVelHistory[key] = {vel = rawVel, at = now}
-			if now - _fhVelClock > 2 then
-				_fhVelClock = now
-				for k, v in pairs(_fhVelHistory) do
-					if now - v.at > 5 then _fhVelHistory[k] = nil end
-				end
-			end
-			return rawVel, rawVel
+		if not _fhVelHistory[key] then
+			_fhVelHistory[key] = rawVel
+		else
+			_fhVelHistory[key] = _fhVelHistory[key]:Lerp(rawVel, 0.35)
 		end
-		entry.vel = entry.vel:Lerp(rawVel, 0.35)
-		entry.at = now
-		return entry.vel, rawVel
-	end
-
-	local _owlCache, _owlClock = nil, 0
-	local function owlZeroGravity(ent)
-		if not (ent.Player and ent.Player:GetAttribute('IsOwlTarget')) then return false end
-		local now = tick()
-		if not _owlCache or now - _owlClock > 0.5 then
-			_owlClock = now
-			_owlCache = collectionService:GetTagged('Owl')
-		end
-		local uid = ent.Player.UserId
-		for _, owl in ipairs(_owlCache) do
-			if owl:GetAttribute('Target') == uid and owl:GetAttribute('Status') == 2 then
-				return true
-			end
-		end
-		return false
+		return _fhVelHistory[key], rawVel
 	end
 
 	local function targetGravity(ent)
@@ -7904,21 +7740,19 @@ run(function()
 		if ent.Character and ent.Character.PrimaryPart and ent.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
 			playerGravity = 6
 		end
-		if owlZeroGravity(ent) then
-			playerGravity = 0
+		if ent.Player and ent.Player:GetAttribute('IsOwlTarget') then
+			local _owls = collectionService:GetTagged('Owl')
+			if #_owls > 0 then
+				local _uid = ent.Player.UserId
+				for _, owl in ipairs(_owls) do
+					if owl:GetAttribute('Target') == _uid and owl:GetAttribute('Status') == 2 then
+						playerGravity = 0
+						break
+					end
+				end
+			end
 		end
 		return playerGravity
-	end
-
-	local function targetHop(ent)
-		local char = ent.Character
-		local hum = char and char:FindFirstChildOfClass('Humanoid')
-		if not hum then return nil end
-		local st = hum:GetState()
-		if st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall then
-			return 42.6
-		end
-		return nil
 	end
 
 	local function shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, ignoreSwitch)
@@ -8028,7 +7862,7 @@ run(function()
 		local calc, flightTime = prediction.SolveTrajectory(
 			originPos, projSpeed, gravity, leadPos, smoothVel,
 			playerGravity, ent.HipHeight or 2,
-			targetHop(ent), sharedFastHitsRayParams
+			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
 		)
 
 		local lifetime = tonumber(meta.predictionLifetimeSec) or tonumber(meta.lifetimeSec) or (projSpeed > 0 and math.min(3, 120 / projSpeed) or 3)
@@ -8075,29 +7909,14 @@ run(function()
 		)
 
 		FastHitPending = true
-		fhShotSeq = fhShotSeq + 1
-		local shotSeq = fhShotSeq
 		task.spawn(function()
-			-- The bow stays in hand until the server has taken the shot, then the sword comes back.
-			local ok, res = pcall(projectileRemote.InvokeServer, projectileRemote,
+			local res = projectileRemote:InvokeServer(
 				item.tool, ammo, projectile, shootPos, selfPos,
 				dir * projSpeed, id, shotMeta,
 				workspace:GetServerTimeNow() - 0.05
 			)
 			FastHitPending = false
-			if shotSeq == fhShotSeq then
-				if switched then
-					pcall(fhRestoreSword)
-					local deadline = tick() + math.min(getFHPing() * 0.6, 0.2)
-					while tick() < deadline do
-						local hand = store.hand and store.hand.tool
-						if hand and not isProjectileTool(hand) then break end
-						task.wait()
-					end
-				end
-				fhBusy = false
-			end
-			if ok and res then
+			if res then
 				pcall(function() res.Parent = replicatedStorage end)
 				local sound = itemMeta.launchSound
 				sound = sound and sound[math.random(1, #sound)] or nil
@@ -8107,13 +7926,11 @@ run(function()
 				lastProjectileTime = workspace:GetServerTimeNow()
 			end
 		end)
-		-- Never leave the auras gated if the remote never answers.
-		task.delay(0.45, function()
-			if shotSeq == fhShotSeq and fhBusy then
-				if switched then pcall(fhRestoreSword) end
-				fhBusy = false
-			end
-		end)
+
+		if switched then
+			fhRestoreSword()
+			fhBusy = false
+		end
 
 		return true
 	end
@@ -8200,7 +8017,7 @@ run(function()
 		local calc, gFlight = prediction.SolveTrajectory(
 			originPos, gSpeed, gGrav, aimPos, smoothVel,
 			playerGravity, ent.HipHeight or 2,
-			targetHop(ent), sharedFastHitsRayParams
+			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
 		)
 		local gLife = tonumber(gmeta and gmeta.predictionLifetimeSec) or 2
 		if not calc or (gFlight and gFlight > gLife) then return false end
@@ -8273,7 +8090,7 @@ run(function()
 		local calc = prediction.SolveTrajectory(
 			originPos, fSpeed, fGrav, aimPos, smoothVel,
 			workspace.Gravity, ent.HipHeight or 2,
-			targetHop(ent), sharedFastHitsRayParams
+			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
 		)
 		if not calc then calc = aimPos end
 
@@ -8397,29 +8214,18 @@ run(function()
 
 		fhBusy = true
 		store._fhBusySince = workspace:GetServerTimeNow()
-		local handReady = false
-		fhLegitShot = true
 		local shotOk, shotErr = pcall(function()
-			if hotbarSwitch(bowSlot) then
-				handReady = fhAwaitHand(item.tool, fhSwapTimeout())
-			end
-			-- Firing before the server sees the bow swap gets the shot rejected.
-			if handReady then
-				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-				task.wait(0.02)
-			end
+			if hotbarSwitch(bowSlot) then task.wait(0.0375) end
+			shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
+			task.wait(0.075)
 		end)
-		fhLegitShot = false
 
-		-- Restore the exact slot selected before the projectile switch. Done async so the
-		-- next bolt cycle isn't held for a full hotbar round trip.
+		-- Restore the exact slot selected before the projectile switch.
 		if originalSlot ~= nil then
-			task.spawn(function()
-				local restoreOk, restoreErr = pcall(hotbarSwitch, originalSlot)
-				if not restoreOk then
-					warn('[aerov4] FastHits hotbar restore failed: ' .. tostring(restoreErr))
-				end
-			end)
+			local restoreOk, restoreErr = pcall(hotbarSwitch, originalSlot)
+			if not restoreOk then
+				warn('[aerov4] FastHits hotbar restore failed: ' .. tostring(restoreErr))
+			end
 		end
 		fhBusy = false
 		if not shotOk then
@@ -8427,30 +8233,18 @@ run(function()
 		end
 	end
 
-	local function fastHitsAuraTarget()
-		if Killaura and Killaura.Enabled then
-			return store.KillauraTarget, true
-		end
-		local grandMod = vape.Modules and vape.Modules['GrandKillaura']
-		if grandMod and grandMod.Enabled then
-			return store.GrandKillauraTarget, false
-		end
-		return nil, false
-	end
-
 	local function doFastHits()
 		if not FastHits or not FastHits.Enabled then return end
+		if not Killaura or not Killaura.Enabled then return end
 		if not entitylib.isAlive then return end
 
 		local selfRoot = entitylib.character and entitylib.character.RootPart
 		if not selfRoot then return end
 
-		local ent, isKa = fastHitsAuraTarget()
+		local ent = store.KillauraTarget
 		if not ent or not ent.RootPart then return end
-		if isKa then
-			if not fhInAngle(ent) then return end
-			if (ent.RootPart.Position - selfRoot.Position).Magnitude > SwingRange.Value then return end
-		end
+		if not fhInAngle(ent) then return end
+		if (ent.RootPart.Position - selfRoot.Position).Magnitude > SwingRange.Value then return end
 
 		if not FastHitPending then
 			if LegitSwitch and LegitSwitch.Enabled then
@@ -8471,9 +8265,9 @@ run(function()
 		FastHitPending = false
 
 		autoShootLoop = task.spawn(function()
-			while FastHits and FastHits.Enabled and ((Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled)) do
+			while Killaura and Killaura.Enabled and FastHits and FastHits.Enabled do
 				pcall(doFastHits)
-				task.wait(0.02)
+				task.wait(0.05)
 			end
 			fhBusy = false
 			autoShootLoop = nil
@@ -8499,6 +8293,8 @@ run(function()
 	local killauraFireLoop
 	local _graceTarget = nil
 	local _graceUntil = 0
+	local _fastAcqTime = 0
+	local _fastAcqRes = nil
 
 	local function withinAngle(v)
 		if not AngleSlider or AngleSlider.Value >= 360 then return true end
@@ -8509,7 +8305,7 @@ run(function()
 		local facing = flatLV.Magnitude > 0.001 and flatLV.Unit or root.CFrame.RightVector
 		local flat = (v.RootPart.Position - root.Position) * Vector3.new(1, 0, 1)
 		if flat.Magnitude <= 1 then return true end
-		return facing:Dot(flat.Unit) >= math.cos(math.rad(AngleSlider.Value) * 0.5)
+		return math.acos(math.clamp(facing:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
 	end
 
 	local function inReach(v)
@@ -8539,50 +8335,44 @@ run(function()
 				return g
 			end
 		end
-		-- Walls are raycast only for the angled candidates we actually consider, in sort order,
-		-- instead of once per entity inside AllPosition. Same result, far fewer rays per attempt.
-		local walls = Targets.Walls.Enabled
+		local now = tick()
+		if (now - _fastAcqTime) < 0.03 and _fastAcqRes then
+			if not (aliveTarget(_fastAcqRes) and withinAngle(_fastAcqRes) and inReach(_fastAcqRes)) then return nil end
+			return _fastAcqRes
+		end
+		_fastAcqTime = now
+		_fastAcqRes = nil
 		local list = entitylib.AllPosition({
 			Range = AttackRange.Value + 0,
+			Wallcheck = Targets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = Targets.Players.Enabled,
 			NPCs = Targets.NPCs.Enabled,
-			Limit = 8,
+			Limit = 5,
 			Sort = sortmethods[Sort.Value] or sortmethods['Distance']
 		})
-		local root = entitylib.character and entitylib.character.RootPart
-		local resolved = nil
 		for _, ent in list do
 			if withinAngle(ent) then
-				if walls and root and entitylib.Wallcheck(root.Position, ent.RootPart.Position, nil, ent) then continue end
-				resolved = ent
+				_fastAcqRes = ent
 				break
 			end
 		end
-		return resolved
+		return _fastAcqRes
 	end
 
-	local function attemptFire(forcedTarget, rangeLimit, frameDelta, attackData)
-		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
-		-- picked that item on purpose, so the aura stands down until they switch back.
-		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then return false end
-		if handIsBlock() then return false end
+	local function attemptFire()
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
-
-		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
-		-- swap finishes, so a short fixed guard is enough. Ping is identical on both packets.
+		
+		-- Add small delay after FastHits to prevent ghosting sword hits
 		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
 			return false
 		end
-
-		local v = forcedTarget or resolveTarget()
+		
+		local v = resolveTarget()
 		if not v then return false end
 
-		local sword, meta = attackData and attackData[1], attackData and attackData[2]
-		if not sword or not meta then
-			sword, meta = getAttackData()
-			if not sword or not meta then return false end
-		end
+		local sword, meta = getAttackData()
+		if not sword or not meta then return false end
 
 		local weaponInst = sword.tool
 		pcall(function()
@@ -8593,15 +8383,13 @@ run(function()
 		end)
 
 		local char = lplr.Character
-		if not char then return false end
+		if not char or not char.PrimaryPart then return false end
 		local tchar = v.Character
-		if not tchar or not tchar.Parent then return false end
-		local selfRoot = entitylib.character and entitylib.character.RootPart
-		local selfPos = selfRoot and selfRoot.Position
-		local targetPos = v.RootPart and v.RootPart.Position
-		if not selfPos or not targetPos then return false end
+		if not tchar or not tchar.PrimaryPart then return false end
+		local selfPos = entitylib.character.RootPart.Position
+		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
-		if dist > (rangeLimit or AttackRange.Value) + 0 then return false end
+		if dist > AttackRange.Value + 0 then return false end
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -8612,7 +8400,7 @@ run(function()
 					inAir = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
 				end
 				if not inAir then
-					local root = v.RootPart
+					local root = tchar.PrimaryPart
 					local vy = root and root.AssemblyLinearVelocity.Y or 0
 					inAir = math.abs(vy) > 3
 				end
@@ -8631,15 +8419,8 @@ run(function()
 			markAttackResult(false)
 			return false
 		end
-		local srvNow = workspace:GetServerTimeNow()
 
-		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
-		local swingInterval = store.auraSwingInterval or AURA_SWING_INTERVAL
-		if not store.noAuraSwing and not handIsNonMelee() and tick() - lastSwingAnim >= swingInterval and tick() >= auraSwingUntil then
-			playAuraSwing(meta, sword)
-			lastSwingAnim = tick()
-			lastAnimTime = lastSwingAnim
-		end
+		local srvNow = workspace:GetServerTimeNow()
 
 		lastAttackTime = tick()
 		store.attackReach = (dist * 100) // 1 / 100
@@ -8648,14 +8429,16 @@ run(function()
 		-- Mark attack as successful for dynamic delay system
 		markAttackResult(true)
 
+		kaLastSend = srvNow
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
-			-- Let the schedule catch up after jitter, but resync before it can
-			-- burst-fire several periods' worth of hits in consecutive frames.
-			if srvNow - kaLastSrv > math.max(kaPeriod * 1.5, 0.08) then kaLastSrv = srvNow end
+			if kaLastSrv < srvNow then
+				kaLastSrv = srvNow
+			end
 		else
 			kaLastSrv = srvNow
 		end
+		kaNextFire = 0
 
 		if bedwars.SwordController then
 			bedwars.SwordController.lastAttack = srvNow
@@ -8668,55 +8451,23 @@ run(function()
 
 		kaPeriod = HIT_PERIOD
 		animPeriod = NORMAL_SWORD_SWING_SPEED
+		kaNextFire = 0
 		kaLastSrv = workspace:GetServerTimeNow() - kaPeriod
+		kaLastSend = 0
 
 		-- Diagnostic only: throttle repeated attemptFire errors without changing attack logic.
 		local lastAttemptFireError = 0
 
 		killauraFireLoop = task.spawn(function()
 			while Killaura and Killaura.Enabled do
-				local dt = runService.Heartbeat:Wait()
-				if type(dt) ~= 'number' then dt = 1 / 60 end
+				runService.Heartbeat:Wait()
 
-				-- Aim half a frame early so a frame boundary cannot cost a whole send. Uses the real
-				-- frame delta so high-refresh clients do not send further ahead than they need to.
-				local srvNow = workspace:GetServerTimeNow()
-				-- ServerTimeNow can step backwards on clock resyncs; without this the
-				-- schedule sits in the future and hits stall until real time catches up.
-				if kaLastSrv > srvNow + 0.25 then kaLastSrv = srvNow end
-				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
-				if srvNow - kaLastSrv >= target then
-					-- Low FPS can leave several hit slots due in one frame. Pace each
-					-- extra send to its scheduled slot instead of bursting, so the
-					-- server still sees properly spaced hits.
-					local t0, s0 = os.clock(), srvNow
-					local fires = 0
-					repeat
-						local ok, res = pcall(attemptFire, nil, nil, dt)
-						if not ok and (tick() - lastAttemptFireError) >= 2 then
-							lastAttemptFireError = tick()
-							warn('[Killaura] attemptFire error: ' .. tostring(res))
-						end
-						if res ~= true then break end
-						fires = fires + 1
-						if fires >= 4 then break end
-						local waitFor = (kaLastSrv + target) - (s0 + (os.clock() - t0))
-						if waitFor > 0.3 then break end
-						if waitFor > 0 then
-							-- Yield instead of spinning: a non-yielding loop freezes the whole client.
-							task.wait(waitFor)
-						end
-						if workspace:GetServerTimeNow() - kaLastSrv < target then break end
-					until false
-				end
-
-				-- Bookkeeping after the clock check so it can never delay a ready hit.
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
-						kaPeriod = SwordTiming.resolvePeriod(meta) * kaPingScale()
+						kaPeriod = getAttackDelay(meta)
 					else
-						kaPeriod = HIT_PERIOD * kaPingScale()
+						kaPeriod = HIT_PERIOD
 					end
 					animPeriod = NORMAL_SWORD_SWING_SPEED
 					updatePreciseClock()
@@ -8724,6 +8475,16 @@ run(function()
 				if not updateOk and (tick() - lastAttemptFireError) >= 2 then
 					lastAttemptFireError = tick()
 					warn('[Killaura] timing update error: ' .. tostring(updateErr))
+				end
+
+				local heartbeatDt = 1 / 60
+				local target = kaPeriod - math.min(heartbeatDt * 0.5, kaPeriod * 0.06)
+				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
+					local ok, err = pcall(attemptFire)
+					if not ok and (tick() - lastAttemptFireError) >= 2 then
+						lastAttemptFireError = tick()
+						warn('[Killaura] attemptFire error: ' .. tostring(err))
+					end
 				end
 			end
 		end)
@@ -8736,7 +8497,11 @@ run(function()
 		end
 		_graceTarget = nil
 		_graceUntil = 0
-		kaLastSrv = 0
+		_fastAcqTime = 0
+		_fastAcqRes = nil
+		kaNextFire = 0
+			kaSync = 0
+		kaSyncSrv = 0
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 	end
 
@@ -8754,7 +8519,6 @@ run(function()
 				lastAttackTime = 0
 				lastTargetTime = 0
 				lastAnimTime = 0
-				lastSwingAnim = 0
 				resetSwordCooldown()
 				preciseRemainder = 0
 				preciseTimestamp = tick()
@@ -8835,7 +8599,7 @@ run(function()
 				local _gatherCache = nil
 				local _gatherCacheTime = 0
 				local function gatherTargets()
-					if _gatherCache and (tick() - _gatherCacheTime) < 0.1 then
+					if _gatherCache and (tick() - _gatherCacheTime) < 0.05 then
 						return _gatherCache[1], _gatherCache[2]
 					end
 
@@ -8845,7 +8609,7 @@ run(function()
 					local sort = sortmethods[Sort.Value]
 
 					local function buildList(range)
-						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 5, Sort = sort})
+						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 1, Sort = sort})
 					end
 
 					local attackPlrs = buildList(AttackRange.Value)
@@ -8882,7 +8646,7 @@ run(function()
 						end
 					end
 
-					local sword = getAttackData()
+					local sword, meta = getAttackData()
 					if not sword then
 						if Attacking then
 							Attacking = false
@@ -8919,14 +8683,14 @@ run(function()
 						local selfpos = selfRoot.Position
 						local flatLV = selfRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
 						local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or selfRoot.CFrame.RightVector
-						local minDot = math.cos(math.rad(AngleSlider.Value) * 0.5)
+						local maxAngle = math.rad(AngleSlider.Value) / 2
 						local swingPlrs, attackPlrs = gatherTargets()
 
 						local function passesAngle(v)
 							if AngleSlider.Value >= 360 then return true end
 							local flat = (v.RootPart.Position - selfpos) * Vector3.new(1, 0, 1)
 							if flat.Magnitude <= 1.0 then return true end
-							return localfacing:Dot(flat.Unit) >= minDot
+							return math.acos(math.clamp(localfacing:Dot(flat.Unit), -1, 1)) <= maxAngle
 						end
 
 						local hasValidSwingTargets = false
@@ -8958,12 +8722,11 @@ run(function()
 							store.KillauraTarget = nil
 						end
 
-						local liveProj = isProjectileTool(liveHandTool())
 						local shouldSwing = hasValidSwingTargets or hasValidAttackTargets
 						local isLegitAura = LegitAura and LegitAura.Enabled
 
 						if shouldSwing or isLegitAura then
-							if not liveProj and not fhBusy and not regentBusy and store.hand and store.hand.toolType ~= 'block' and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
+							if not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
 								store._kaSwitch = tick()
 								switchItem(sword.tool, 0)
 							end
@@ -8984,7 +8747,7 @@ run(function()
 								end
 							end
 
-							if not isClaw and not liveProj and (tick() - lastAnimTime) >= animPeriod then
+							if not isClaw and (tick() - lastAnimTime) >= animPeriod then
 								local allowSwingAnim = not (LegitAura and LegitAura.Enabled)
 								if allowSwingAnim then
 									-- Fixed animation period to prevent stuttering/doubling
@@ -8996,6 +8759,7 @@ run(function()
 									if isOnTinker() then
 										playTinkerSwing()
 									end
+									triggerFirstPersonSwing(meta)
 									if vape.ThreadFix and setthreadidentity then
 										pcall(setthreadidentity, 8)
 									end
@@ -9004,7 +8768,7 @@ run(function()
 						end
 					end
 
-					task.wait(0.02)
+					task.wait()
 				until not Killaura.Enabled
 			else
 				stopAutoShootLoop()
@@ -9260,7 +9024,7 @@ run(function()
 	FastHits = Killaura:CreateToggle({
 		Name = 'Fast Hits',
 		Default = false,
-		Tooltip = 'Use projectiles mid pvp (works with Killaura and GrandKillaura)',
+		Tooltip = 'use projectiles mid pvp',
 		Function = function(call)
 			if FireRate then FireRate.Object.Visible = call end
 			if LegitSwitch then LegitSwitch.Object.Visible = call end
@@ -9270,7 +9034,7 @@ run(function()
 			if Fireballs then Fireballs.Object.Visible = call end
 			if FireballCooldown then FireballCooldown.Object.Visible = call and (Fireballs and Fireballs.Enabled) end
 			if call then
-				if (Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled) then
+				if Killaura and Killaura.Enabled then
 					startAutoShootLoop()
 				end
 			else
@@ -9360,7 +9124,6 @@ run(function()
 			if FireballCooldown then FireballCooldown.Object.Visible = (Fireballs and Fireballs.Enabled) end
 		end
 	end)
-
 end)
 run(function()
 	local BedPatcher
