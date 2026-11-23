@@ -7130,7 +7130,7 @@ run(function()
 		local payload = {
 			weapon = weapon,
 			chargedAttack = {chargeRatio = 0},
-			lastSwingServerTimeDelta = 0.5,
+			lastSwingServerTimeDelta = kaLastSend > 0 and math.max(workspace:GetServerTimeNow() - kaLastSend, 0.01) or 0.35,
 			entityInstance = entityInstance,
 			validate = {
 				raycast = {
@@ -8401,6 +8401,38 @@ run(function()
 		return true
 	end
 
+	task.spawn(function()
+		pcall(function()
+			local sc
+			for _ = 1, 100 do
+				sc = bedwars.SwordController
+				if sc and sc.sendServerRequest then break end
+				task.wait(0.2)
+			end
+			if not (sc and sc.sendServerRequest) then warn('[KA] SwordController.sendServerRequest not found') return end
+			local function dumpConst(fn, label)
+				if type(fn) ~= 'function' or not debug.getconstants then return end
+				local okc, consts = pcall(debug.getconstants, fn)
+				if okc and type(consts) == 'table' then
+					local strs = {}
+					for _, c in ipairs(consts) do
+						if type(c) == 'string' then table.insert(strs, c) end
+					end
+					warn(('[KA] %s constants: %s'):format(label, table.concat(strs, ' | ')))
+				end
+			end
+			dumpConst(sc.sendServerRequest, 'sendServerRequest')
+			for name, fn in pairs(sc) do
+				if type(fn) == 'function' and name ~= 'sendServerRequest' then
+					local ln = name:lower()
+					if ln:find('swing') or ln:find('attack') or ln:find('hit') or ln:find('request') then
+						dumpConst(fn, 'SwordController.' .. name)
+					end
+				end
+			end
+		end)
+	end)
+
 	local function resolveTarget()
 		local v = store.KillauraTarget
 		if aliveTarget(v) and withinAngle(v) and inReach(v) then
@@ -8414,32 +8446,33 @@ run(function()
 				return g
 			end
 		end
-		local now = tick()
-		if (now - _fastAcqTime) < 0.03 and _fastAcqRes then
-			if not (aliveTarget(_fastAcqRes) and withinAngle(_fastAcqRes) and inReach(_fastAcqRes)) then return nil end
-			return _fastAcqRes
-		end
-		_fastAcqTime = now
-		_fastAcqRes = nil
+		-- Walls are raycast only for the angled candidates we actually consider, in sort order,
+		-- instead of once per entity inside AllPosition. Same result, far fewer rays per attempt.
+		local walls = Targets.Walls.Enabled
 		local list = entitylib.AllPosition({
 			Range = AttackRange.Value + 0,
-			Wallcheck = Targets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = Targets.Players.Enabled,
 			NPCs = Targets.NPCs.Enabled,
-			Limit = 5,
+			Limit = 8,
 			Sort = sortmethods[Sort.Value] or sortmethods['Distance']
 		})
+		local root = entitylib.character and entitylib.character.RootPart
+		local resolved = nil
 		for _, ent in list do
 			if withinAngle(ent) then
-				_fastAcqRes = ent
+				if walls and root and entitylib.Wallcheck(root.Position, ent.RootPart.Position, nil, ent) then continue end
+				resolved = ent
 				break
 			end
 		end
-		return _fastAcqRes
+		return resolved
 	end
 
 	local function attemptFire()
+		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
+		-- picked that item on purpose, so the aura stands down until they switch back.
+		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then return false end
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 		
 		-- Add small delay after FastHits to prevent ghosting sword hits
@@ -8464,9 +8497,10 @@ run(function()
 		local char = lplr.Character
 		if not char or not char.PrimaryPart then return false end
 		local tchar = v.Character
-		if not tchar or not tchar.PrimaryPart then return false end
+		if not tchar or not tchar.Parent then return false end
 		local selfPos = entitylib.character.RootPart.Position
-		local targetPos = tchar.PrimaryPart.Position
+		local targetPos = v.RootPart and v.RootPart.Position
+		if not selfPos or not targetPos then return false end
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > AttackRange.Value + 0 then return false end
 
