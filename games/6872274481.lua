@@ -8406,17 +8406,20 @@ run(function()
 			-- Firing before the server sees the bow swap gets the shot rejected.
 			if handReady then
 				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-				task.wait(0.075)
+				task.wait(0.02)
 			end
 		end)
 		fhLegitShot = false
 
-		-- Restore the exact slot selected before the projectile switch.
+		-- Restore the exact slot selected before the projectile switch. Done async so the
+		-- next bolt cycle isn't held for a full hotbar round trip.
 		if originalSlot ~= nil then
-			local restoreOk, restoreErr = pcall(hotbarSwitch, originalSlot)
-			if not restoreOk then
-				warn('[aerov4] FastHits hotbar restore failed: ' .. tostring(restoreErr))
-			end
+			task.spawn(function()
+				local restoreOk, restoreErr = pcall(hotbarSwitch, originalSlot)
+				if not restoreOk then
+					warn('[aerov4] FastHits hotbar restore failed: ' .. tostring(restoreErr))
+				end
+			end)
 		end
 		fhBusy = false
 		if not shotOk then
@@ -8470,7 +8473,7 @@ run(function()
 		autoShootLoop = task.spawn(function()
 			while FastHits and FastHits.Enabled and ((Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled)) do
 				pcall(doFastHits)
-				task.wait(0.05)
+				task.wait(0.02)
 			end
 			fhBusy = false
 			autoShootLoop = nil
