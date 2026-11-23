@@ -7069,7 +7069,7 @@ run(function()
 	local lastAnimTime = 0 -- Track when last animation was played to prevent doubling
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.285 -- Killaura hit period fallback (~35 hits/10s)
+	local HIT_PERIOD = 0.296 -- Killaura hit period fallback matching SafeSpacing
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
@@ -7136,21 +7136,14 @@ run(function()
 	task.spawn(function()
 		task.wait()
 		local _remotes = getgenv().remotes or remotes
+		projectileRemote = bedwars.Client:Get(_remotes.FireProjectile).instance
 		pcall(function()
-			projectileRemote = bedwars.Client:Get(_remotes.FireProjectile).instance
 			AttackRemote = bedwars.Client:Get(_remotes.AttackEntity).instance
 		end)
 	end)
 
 	local function getKnitControllers()
-		local missing = getgenv().NYXMissingModule
-		local kc = bedwars.KnitClient
-		local ctrls = kc and kc.Controllers
-		if ctrls ~= nil and ctrls ~= missing then return ctrls end
-		local kn = bedwars.Knit
-		local knc = kn and kn.Controllers
-		if knc ~= nil and knc ~= missing then return knc end
-		return ctrls or knc
+		return (bedwars.KnitClient and bedwars.KnitClient.Controllers) or (bedwars.Knit and bedwars.Knit.Controllers)
 	end
 
 	local function quantize240(value)
@@ -7170,23 +7163,20 @@ run(function()
 	end
 
 	local function getAttackDelay(meta)
-		local mode = (HitregMode and HitregMode.Value) or 'Consistent'
-		if mode == 'Stealth Mode' then mode = 'Consistent'
-		elseif mode == 'Advanced Mode' then mode = 'High Hit Reg'
-		elseif mode == 'Dynamic' then mode = 'Legit' end
+		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
 		local Budget = 0
-		local Hits = 36
+		local Hits = 35
 		
 		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
 		local effectiveDelay
-		if mode == 'Legit' then
+		if mode == 'Dynamic' then
 			effectiveDelay = dynDelay
-		elseif mode == 'High Hit Reg' then
-			effectiveDelay = 20
+		elseif mode == 'Advanced Mode' then
+			effectiveDelay = 49.55
 		else
-			effectiveDelay = 25
+			effectiveDelay = 50
 		end
 		
 		-- This decouples hit registration from animation speed
@@ -7240,16 +7230,17 @@ run(function()
 	end
 
 	local function FireAttackRemote(weapon, entityInstance, selfPos, targetPos)
+		if not AttackRemote then return false end
+
 		local delta = (targetPos - selfPos).Magnitude
 		if delta < 0.01 then return false end
 
 		local dir = CFrame.lookAt(selfPos, targetPos).LookVector
 		local pos = selfPos + dir * math.max(delta - 14.399, 0)
 
-		local payload = {
+		AttackRemote:FireServer({
 			weapon = weapon,
 			chargedAttack = {chargeRatio = 0},
-			lastSwingServerTimeDelta = kaLastSend > 0 and math.max(workspace:GetServerTimeNow() - kaLastSend, 0.01) or 0.35,
 			entityInstance = entityInstance,
 			validate = {
 				raycast = {
@@ -7259,28 +7250,7 @@ run(function()
 				targetPosition = {value = targetPos},
 				selfPosition = {value = pos}
 			}
-		}
-
-		-- the server drops SwordHit fired on the raw remote; it has to go through the net client like the game's own swing
-		if not store.kaAttackNet then
-			pcall(function()
-				local net = bedwars.Client:Get((getgenv().remotes or remotes).AttackEntity)
-				if net and type(net.SendToServer) == 'function' then
-					store.kaAttackNet = net
-				end
-			end)
-		end
-		local net = store.kaAttackNet
-		if net then
-			local previous = store.kaSending
-			store.kaSending = true
-			local ok = pcall(net.SendToServer, net, payload)
-			store.kaSending = previous
-			if ok then return true end
-		end
-
-		if not AttackRemote then return false end
-		AttackRemote:FireServer(payload)
+		})
 		return true
 	end
 
@@ -7314,98 +7284,61 @@ run(function()
 	local _adCacheMeta = nil
 	local _adCacheTime = 0
 
-	local function findItemMeta(toolName)
-		local itemMeta = bedwars.ItemMeta
-		if not itemMeta or type(itemMeta) ~= 'table' or not toolName then return nil end
-		local direct = itemMeta[toolName]
-		if direct then return direct end
-		local lower = toolName:lower()
-		local underscored = lower:gsub('[%s%-]+', '_')
-		for key, meta in pairs(itemMeta) do
-			if type(key) == 'string' and (key:lower() == lower or key:lower() == underscored or key:lower():gsub('[%s%-]+', '_') == underscored) then
-				return meta
-			end
-		end
-		return nil
-	end
-
 	local function isMeleeWeapon(toolName)
 		if not toolName then return false end
 		local lower = toolName:lower()
 		if lower:find('frosty_hammer') or lower:find('tinker') or lower:find('chainsaw') or lower:find('sword') or lower:find('blade') or lower:find('scythe') or lower:find('dagger') or lower:find('hammer') or lower:find('axe') then
 			return true
 		end
-		local meta = findItemMeta(toolName)
+		local meta = bedwars.ItemMeta and bedwars.ItemMeta[toolName]
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
-	local function findEquippedMeleeTool()
-		local char = lplr.Character
-		local function scan(parent)
-			if not parent then return nil end
-			for _, c in parent:GetChildren() do
-				if c:IsA('Tool') and isMeleeWeapon(c.Name) then
-					return {tool = c, amount = 1}
-				end
-			end
-			return nil
-		end
-		return scan(char) or scan(lplr:FindFirstChildOfClass('Backpack'))
-	end
-
 	local function computeAttackData()
-		store.kaDataBlock = nil
-		if not entitylib.isAlive then store.kaDataBlock = 'dead' return false end
+		if not entitylib.isAlive then return false end
 
 		local casting = lplr:GetAttribute('IsCasting')
 		if casting ~= nil and casting ~= false and casting ~= 0 and casting ~= '' then
-			if casting == true then store.kaDataBlock = 'casting' return false end
-			if type(casting) == 'number' and casting > workspace:GetServerTimeNow() then store.kaDataBlock = 'casting' return false end
+			if casting == true then return false end
+			if type(casting) == 'number' and casting > workspace:GetServerTimeNow() then return false end
 		end
 
-		if bedwars.SwordController and bedwars.SwordController.disableSwingState then store.kaDataBlock = 'swing-disabled' return false end
+		if bedwars.SwordController and bedwars.SwordController.disableSwingState then return false end
 
 		local stunned = lplr.Character and lplr.Character:GetAttribute('StunnedUntilTime')
-		if stunned and stunned > workspace:GetServerTimeNow() then store.kaDataBlock = 'stunned' return false end
+		if stunned and stunned > workspace:GetServerTimeNow() then return false end
 
 		if AttackCheck and AttackCheck.Enabled then
 			if kitChecks then
 				for _, check in pairs(kitChecks) do
 					local ok, res = pcall(check)
-					if ok and res then store.kaDataBlock = 'kitcheck' return false end
+					if ok and res then return false end
 				end
 			end
 		end
 
-		if tick() - (store.silasAbilityTime or 0) < 2.2 then store.kaDataBlock = 'silas-cd' return false end
-		if tick() - (store.terraStompTime or 0) < 0.7 then store.kaDataBlock = 'terra-stomp' return false end
-		if tick() - (store.terraKickTime or 0) < 0.5 then store.kaDataBlock = 'terra-kick' return false end
+		if tick() - (store.silasAbilityTime or 0) < 2.2 then return false end
+		if tick() - (store.terraStompTime or 0) < 0.7 then return false end
+		if tick() - (store.terraKickTime or 0) < 0.5 then return false end
 
 		local sword = store.hand
 		if not sword or not sword.tool or not isMeleeWeapon(sword.tool.Name) then
 			sword = (Limit and Limit.Enabled) and nil or store.tools.sword
 		end
-		if (not sword or not sword.tool) and not (Limit and Limit.Enabled) then
-			sword = findEquippedMeleeTool()
-		end
-		if not sword or not sword.tool then store.kaDataBlock = 'no-sword-tool' return false end
+		if not sword or not sword.tool then return false end
 
-		local itemMeta = bedwars.ItemMeta
-		local meta = itemMeta and (itemMeta[sword.tool.Name] or findItemMeta(sword.tool.Name))
-		if not meta then
-			meta = {sword = {attackSpeed = 0.35, damage = 10, attackRange = 14.4}}
-		end
+		local meta = bedwars.ItemMeta[sword.tool.Name]
+		if not meta then return false end
 
 		if Limit and Limit.Enabled then
 			if not isMeleeWeapon(sword.tool.Name) or (bedwars.DaoController and bedwars.DaoController.chargingMaid) then
-				store.kaDataBlock = 'limit-block'
 				return false
 			end
 		end
 
 		if LegitAura and LegitAura.Enabled then
 			local lastSwing = bedwars.SwordController and bedwars.SwordController.lastSwing
-			if not lastSwing or (tick() - lastSwing) > 0.25 then store.kaDataBlock = 'legit-swing-wait' return false end
+			if not lastSwing or (tick() - lastSwing) > 0.25 then return false end
 		end
 
 		return sword, meta
@@ -7505,14 +7438,14 @@ run(function()
 		local ClientSyncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
 		if ClientSyncEvents then
 			pcall(function()
-				connectSignal(ClientSyncEvents:Get('VoidHunter_TargetMarked'), function(data)
+				ClientSyncEvents:Get('VoidHunter_TargetMarked'):Connect(function(data)
 					skollMarked = true
 					skollMarkedTime = tick()
 					if data and data.target then
 						skollMarkedTarget = data.target
 					end
 				end)
-				connectSignal(ClientSyncEvents:Get('VoidHunter_TargetMarkedRemoved'), function()
+				ClientSyncEvents:Get('VoidHunter_TargetMarkedRemoved'):Connect(function()
 					skollMarked = false
 					skollMarkedTarget = nil
 				end)
@@ -7735,33 +7668,26 @@ run(function()
 
 	local function startUseKitsLoop()
 		if useKitLoop then return end
-		local initOk, activeKit = pcall(getCurrentKit)
-		local supportedName = initOk and getSupportedKitDisplayName(activeKit) or nil
+		local activeKit = getCurrentKit()
+		local supportedName = getSupportedKitDisplayName(activeKit)
 		if supportedName then
 			lastNotifiedKit = supportedName
-			pcall(notifyKit, supportedName)
+			notifyKit(supportedName)
 		else
 			lastNotifiedKit = nil
 		end
 
 		useKitLoop = task.spawn(function()
-			local lastKitError = 0
 			while UseKits and UseKits.Enabled do
-				local ok, err = pcall(function()
-					local currentKit = getCurrentKit()
-					local currentSupported = getSupportedKitDisplayName(currentKit)
-					if currentSupported and currentSupported ~= lastNotifiedKit then
-						lastNotifiedKit = currentSupported
-						notifyKit(currentSupported)
-					elseif not currentSupported then
-						lastNotifiedKit = nil
-					end
-					executeKitAbilities()
-				end)
-				if not ok and (tick() - lastKitError) >= 5 then
-					lastKitError = tick()
-					warn('[Killaura] kit loop error: ' .. tostring(err))
+				local currentKit = getCurrentKit()
+				local currentSupported = getSupportedKitDisplayName(currentKit)
+				if currentSupported and currentSupported ~= lastNotifiedKit then
+					lastNotifiedKit = currentSupported
+					notifyKit(currentSupported)
+				elseif not currentSupported then
+					lastNotifiedKit = nil
 				end
+				pcall(executeKitAbilities)
 				task.wait(0.08)
 			end
 			useKitLoop = nil
@@ -7780,7 +7706,6 @@ run(function()
 	local FireRates: {[string]: number} = {}
 	local LastShot = 0.095
 	local FastHitPending = false
-	local fhShotSeq = 0
 
 	local function getAmmo(check)
 		for _, item in store.inventory.inventory.items do
@@ -7838,53 +7763,18 @@ run(function()
 		return math.acos(math.clamp(flatLook.Unit:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
 	end
 
-	local function fhAwaitHand(tool, timeout)
-		local name = tool.Name
-		local deadline = tick() + timeout
-		while tick() < deadline do
-			local hand = store.hand and store.hand.tool
-			if hand and (hand == tool or hand.Name == name) then return true end
-			task.wait()
-		end
-		return false
-	end
-
-	local function fhSwapTimeout()
-		return math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
-	end
-
-	-- The server only accepts the shot if its own hand already holds the tool, so wait for the
-	-- equip round trip instead of firing after a fixed sleep.
-	local fhHubTool = nil
-	local fhLegitShot = false
 	local function fhEquipAwait(tool)
 		if not tool or not tool.Parent then return false end
-		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
-		local handNow = store.hand and store.hand.tool
-		if check and check.Value == tool and handNow and (handNow == tool or handNow.Name == tool.Name) then return true end
-		local switchedNow = false
-		pcall(function() switchedNow = switchItem(tool, 0) == true end)
-		if not switchedNow then return false end
-		fhHubTool = tool
-		local timeout = fhSwapTimeout()
-		if fhAwaitHand(tool, timeout) then return true end
-		pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = tool}) end)
-		return fhAwaitHand(tool, math.min(timeout, 0.2))
+		local success = pcall(switchItem, tool, 0.0475)
+		return success
 	end
 
 	local fhRestoreToken = 0
 	local function fhRestoreSword()
-		if fhLegitShot then return end
 		local sw = store.tools.sword
 		if not sw or not sw.tool or not sw.tool.Parent then return end
 		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 		if not check then return end
-		-- If the player picked something else while the shot was in flight, that is their hand now.
-		if fhHubTool and check.Value and check.Value ~= fhHubTool and check.Value.Parent then
-			fhHubTool = nil
-			return
-		end
-		fhHubTool = nil
 		fhRestoreToken = fhRestoreToken + 1
 		local token = fhRestoreToken
 		check.Value = sw.tool
@@ -7895,7 +7785,6 @@ run(function()
 				if token ~= fhRestoreToken then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
-				if isProjectileTool(liveHandTool()) then return end
 				if check.Value ~= sw.tool or (store.hand and store.hand.tool ~= sw.tool) then
 					check.Value = sw.tool
 					pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
@@ -8118,29 +8007,14 @@ run(function()
 		)
 
 		FastHitPending = true
-		fhShotSeq = fhShotSeq + 1
-		local shotSeq = fhShotSeq
 		task.spawn(function()
-			-- The bow stays in hand until the server has taken the shot, then the sword comes back.
-			local ok, res = pcall(projectileRemote.InvokeServer, projectileRemote,
+			local res = projectileRemote:InvokeServer(
 				item.tool, ammo, projectile, shootPos, selfPos,
 				dir * projSpeed, id, shotMeta,
 				workspace:GetServerTimeNow() - 0.05
 			)
 			FastHitPending = false
-			if shotSeq == fhShotSeq then
-				if switched and not fhLegitShot then
-					pcall(fhRestoreSword)
-					local deadline = tick() + math.min(getFHPing() * 0.6, 0.2)
-					while tick() < deadline do
-						local hand = store.hand and store.hand.tool
-						if hand and not isProjectileTool(hand) then break end
-						task.wait()
-					end
-				end
-				fhBusy = false
-			end
-			if ok and res then
+			if res then
 				pcall(function() res.Parent = replicatedStorage end)
 				local sound = itemMeta.launchSound
 				sound = sound and sound[math.random(1, #sound)] or nil
@@ -8150,13 +8024,11 @@ run(function()
 				lastProjectileTime = workspace:GetServerTimeNow()
 			end
 		end)
-		-- Never leave the auras gated if the remote never answers.
-		task.delay(0.45, function()
-			if shotSeq == fhShotSeq and fhBusy then
-				if switched and not fhLegitShot then pcall(fhRestoreSword) end
-				fhBusy = false
-			end
-		end)
+
+		if switched then
+			fhRestoreSword()
+			fhBusy = false
+		end
 
 		return true
 	end
@@ -8440,31 +8312,11 @@ run(function()
 
 		fhBusy = true
 		store._fhBusySince = workspace:GetServerTimeNow()
-		local handReady = false
-		fhLegitShot = true
-		local shotOk, shotErr = pcall(function()
-			if hotbarSwitch(bowSlot) then
-				handReady = fhAwaitHand(item.tool, fhSwapTimeout())
-			end
-			-- Firing before the server sees the bow swap gets the shot rejected.
-			if handReady then
-				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-				task.wait(0.02)
-			end
-		end)
-		fhLegitShot = false
-
-		-- Restore the exact slot selected before the projectile switch.
-		if originalSlot ~= nil then
-			local restoreOk, restoreErr = pcall(hotbarSwitch, originalSlot)
-			if not restoreOk then
-				warn('[aerov4] FastHits hotbar restore failed: ' .. tostring(restoreErr))
-			end
-		end
+		if hotbarSwitch(bowSlot) then task.wait(0.0375) end
+		shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
+		task.wait(0.075)
+		hotbarSwitch(swordSlot or originalSlot)
 		fhBusy = false
-		if not shotOk then
-			warn('[aerov4] FastHits projectile switch failed: ' .. tostring(shotErr))
-		end
 	end
 
 	local function doFastHits()
@@ -8556,24 +8408,6 @@ run(function()
 		return true
 	end
 
-	task.spawn(function()
-		pcall(function()
-			local missing = getgenv().NYXMissingModule
-			local function hasSend(sc)
-				if sc == nil or sc == missing then return false end
-				local f = sc.sendServerRequest
-				return f ~= nil and f ~= missing
-			end
-			local sc
-			for _ = 1, 100 do
-				sc = bedwars.SwordController
-				if hasSend(sc) then break end
-				task.wait(0.2)
-			end
-			if not hasSend(sc) then warn('[KA] SwordController.sendServerRequest not found') return end
-		end)
-	end)
-
 	local function resolveTarget()
 		local v = store.KillauraTarget
 		if aliveTarget(v) and withinAngle(v) and inReach(v) then
@@ -8587,48 +8421,44 @@ run(function()
 				return g
 			end
 		end
-		-- Walls are raycast only for the angled candidates we actually consider, in sort order,
-		-- instead of once per entity inside AllPosition. Same result, far fewer rays per attempt.
-		local walls = Targets.Walls.Enabled
+		local now = tick()
+		if (now - _fastAcqTime) < 0.03 and _fastAcqRes then
+			if not (aliveTarget(_fastAcqRes) and withinAngle(_fastAcqRes) and inReach(_fastAcqRes)) then return nil end
+			return _fastAcqRes
+		end
+		_fastAcqTime = now
+		_fastAcqRes = nil
 		local list = entitylib.AllPosition({
 			Range = AttackRange.Value + 0,
+			Wallcheck = Targets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = Targets.Players.Enabled,
 			NPCs = Targets.NPCs.Enabled,
-			Limit = 8,
+			Limit = 5,
 			Sort = sortmethods[Sort.Value] or sortmethods['Distance']
 		})
-		local root = entitylib.character and entitylib.character.RootPart
-		local resolved = nil
 		for _, ent in list do
 			if withinAngle(ent) then
-				if walls and root and entitylib.Wallcheck(root.Position, ent.RootPart.Position, nil, ent) then continue end
-				resolved = ent
+				_fastAcqRes = ent
 				break
 			end
 		end
-		return resolved
+		return _fastAcqRes
 	end
 
 	local function attemptFire()
-		store.kaBlock = 'start'
-		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
-		-- picked that item on purpose, so the aura stands down until they switch back.
-		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then store.kaBlock = 'projectile-hand' return false end
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then store.kaBlock = 'fh-busy' return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 		
 		-- Add small delay after FastHits to prevent ghosting sword hits
 		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
-			store.kaBlock = 'proj-cooldown'
 			return false
 		end
 		
 		local v = resolveTarget()
-		if not v then store.kaBlock = 'no-target' return false end
+		if not v then return false end
 
 		local sword, meta = getAttackData()
-		if not sword then store.kaBlock = 'no-sword' return false end
-		if not meta then store.kaBlock = 'no-meta' return false end
+		if not sword or not meta then return false end
 
 		local weaponInst = sword.tool
 		pcall(function()
@@ -8639,14 +8469,13 @@ run(function()
 		end)
 
 		local char = lplr.Character
-		if not char or not char.PrimaryPart then store.kaBlock = 'no-char' return false end
+		if not char or not char.PrimaryPart then return false end
 		local tchar = v.Character
-		if not tchar or not tchar.Parent then store.kaBlock = 'no-tchar' return false end
+		if not tchar or not tchar.PrimaryPart then return false end
 		local selfPos = entitylib.character.RootPart.Position
-		local targetPos = v.RootPart and v.RootPart.Position
-		if not selfPos or not targetPos then store.kaBlock = 'no-pos' return false end
+		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
-		if dist > AttackRange.Value + 0 then store.kaBlock = 'out-of-range' return false end
+		if dist > AttackRange.Value + 0 then return false end
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -8662,28 +8491,20 @@ run(function()
 					inAir = math.abs(vy) > 3
 				end
 				if inAir then
-					if math.random(1, 100) > AirHitsChance.Value then store.kaBlock = 'airhit-roll' return false end
+					if math.random(1, 100) > AirHitsChance.Value then return false end
 				end
 			end
 		end
 
 		if sword.tool.Name:find('summoner_claw') then
 			pcall(function() KaidaController:request(tchar) end)
-			store.kaBlock = 'summoner-claw'
 			return false
 		end
 
 		if not FireAttackRemote(weaponInst, tchar, selfPos, targetPos) then
-			store.kaBlock = 'fire-fail'
 			markAttackResult(false)
 			return false
 		end
-
-		pcall(function()
-			local syncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
-			local ev = syncEvents and syncEvents.Get and syncEvents:Get('SwordSwing')
-			if ev and ev.Fire then ev:Fire({player = lplr}) end
-		end)
 
 		local srvNow = workspace:GetServerTimeNow()
 
@@ -8695,17 +8516,6 @@ run(function()
 		markAttackResult(true)
 
 		kaLastSend = srvNow
-		store.kaSent = (store.kaSent or 0) + 1
-		store.kaTrackChar = tchar
-		local trackHum = tchar:FindFirstChildOfClass('Humanoid')
-		store.kaTrackHP = trackHum and trackHum.Health or nil
-		store.kaSentWindow = store.kaSentWindow or {n = 0, t = srvNow}
-		if srvNow - store.kaSentWindow.t >= 5 then
-			local rate = store.kaSentWindow.n / (srvNow - store.kaSentWindow.t)
-			store.kaSentWindow = {n = 0, t = srvNow}
-			-- diagnostics removed: console stays clean
-		end
-		store.kaSentWindow.n = store.kaSentWindow.n + 1
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
 			if kaLastSrv < srvNow then
@@ -8731,50 +8541,26 @@ run(function()
 		kaLastSrv = workspace:GetServerTimeNow() - kaPeriod
 		kaLastSend = 0
 
-		-- Diagnostic only: throttle repeated attemptFire errors without changing attack logic.
-		local lastAttemptFireError = 0
-
 		killauraFireLoop = task.spawn(function()
 			while Killaura and Killaura.Enabled do
 				runService.Heartbeat:Wait()
 
-				local updateOk, updateErr = pcall(function()
-					local sword, meta = getAttackData()
-					if sword and meta then
-						kaPeriod = getAttackDelay(meta)
-					else
-						kaPeriod = HIT_PERIOD
-					end
+				local sword, meta = getAttackData()
+				if sword and meta then
+					kaPeriod = getAttackDelay(meta)
 					animPeriod = NORMAL_SWORD_SWING_SPEED
-					updatePreciseClock()
-					local tc = store.kaTrackChar
-					if tc and tc.Parent then
-						local hum = tc:FindFirstChildOfClass('Humanoid')
-						local hp = hum and hum.Health
-						if hp and store.kaTrackHP and hp < store.kaTrackHP - 0.5 then
-							store.kaHits = (store.kaHits or 0) + 1
-						end
-						if hp then store.kaTrackHP = hp end
-					else
-						store.kaTrackChar = nil
-						store.kaTrackHP = nil
-					end
-				end)
-				if not updateOk and (tick() - lastAttemptFireError) >= 2 then
-					lastAttemptFireError = tick()
-					warn('[Killaura] timing update error: ' .. tostring(updateErr))
+				else
+					kaPeriod = HIT_PERIOD
+					animPeriod = NORMAL_SWORD_SWING_SPEED
 				end
+
+				updatePreciseClock()
 
 				local heartbeatDt = 1 / 60
 				local target = kaPeriod - math.min(heartbeatDt * 0.5, kaPeriod * 0.06)
 				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
-					local ok, err = pcall(attemptFire)
-					if not ok and (tick() - lastAttemptFireError) >= 2 then
-						lastAttemptFireError = tick()
-						warn('[Killaura] attemptFire error: ' .. tostring(err))
-					end
+					pcall(attemptFire)
 				end
-				-- blocker diagnostics removed: console stays clean
 			end
 		end)
 	end
@@ -8794,13 +8580,6 @@ run(function()
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 	end
 
-	local function getKillauraWrist()
-		local camera = gameCamera or workspace.CurrentCamera
-		local viewmodel = camera and camera:FindFirstChild('Viewmodel')
-		local rightHand = viewmodel and viewmodel:FindFirstChild('RightHand')
-		return rightHand and rightHand:FindFirstChild('RightWrist')
-	end
-
 	Killaura = vape.Categories.Blatant:CreateModule({
 		Name = 'Killaura',
 		Function = function(callback)
@@ -8808,10 +8587,6 @@ run(function()
 				lastAttackTime = 0
 				lastTargetTime = 0
 				lastAnimTime = 0
-				store.kaHits = 0
-				store.kaSent = 0
-				store.kaTrackChar = nil
-				store.kaTrackHP = nil
 				resetSwordCooldown()
 				preciseRemainder = 0
 				preciseTimestamp = tick()
@@ -8836,56 +8611,37 @@ run(function()
 					task.spawn(function()
 						local started = false
 						repeat
-							local wrist = getKillauraWrist()
-							local mode = AnimationMode and AnimationMode.Value
-							local sequence = mode and anims[mode]
-							if not wrist or type(sequence) ~= 'table' or #sequence == 0 then
-								if AnimTween then pcall(AnimTween.Destroy, AnimTween) AnimTween = nil end
-								if wrist and armC0 then wrist.C0 = armC0 end
-								started = false
-								task.wait(0.1)
-								continue
-							end
 							if Attacking and not (LegitAura and LegitAura.Enabled) then
-								if not armC0 then armC0 = wrist.C0 end
+								if not armC0 then
+									armC0 = gameCamera.Viewmodel.RightHand.RightWrist.C0
+								end
 								local first = not started
 								started = true
-								if mode == 'Random' then
+								if AnimationMode.Value == 'Random' then
 									anims.Random = {{CFrame = CFrame.Angles(math.rad(math.random(1, 360)), math.rad(math.random(1, 360)), math.rad(math.random(1, 360))), Time = 0.12}}
-									sequence = anims.Random
 								end
-								for _, v in sequence do
-									if AnimTween then pcall(AnimTween.Destroy, AnimTween) AnimTween = nil end
-									local speed = math.max(tonumber(AnimationSpeed and AnimationSpeed.Value) or 1, 0.1)
-									AnimTween = tweenService:Create(wrist, TweenInfo.new(first and (AnimationTween and AnimationTween.Enabled and 0.001 or 0.1) or (v.Time / speed), Enum.EasingStyle.Linear), {
+								for _, v in anims[AnimationMode.Value] do
+									if AnimTween then AnimTween:Destroy() AnimTween = nil end
+									AnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(first and (AnimationTween.Enabled and 0.001 or 0.1) or v.Time / AnimationSpeed.Value, Enum.EasingStyle.Linear), {
 										C0 = armC0 * v.CFrame
 									})
-									local activeTween = AnimTween
-									activeTween:Play()
-									local waitOk = pcall(function()
-										activeTween.Completed:Wait()
-									end)
-									if not waitOk or AnimTween ~= activeTween or not wrist.Parent then
-										break
-									end
+									AnimTween:Play()
+									AnimTween.Completed:Wait()
 									first = false
 									if (not Killaura.Enabled) or (not Attacking) then break end
 								end
 							elseif started then
 								started = false
-								if AnimTween then pcall(AnimTween.Destroy, AnimTween) AnimTween = nil end
-								if armC0 then
-									AnimTween = tweenService:Create(wrist, TweenInfo.new(AnimationTween and AnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
-										C0 = armC0
-									})
-									AnimTween:Play()
-								end
+								if AnimTween then AnimTween:Destroy() AnimTween = nil end
+								AnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(AnimationTween and AnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
+									C0 = armC0
+								})
+								AnimTween:Play()
 							end
-							if not started then task.wait(1 / 3.5) end
+							if not started then
+								task.wait(1 / 3.5)
+							end
 						until (not Killaura.Enabled) or (not Animation.Enabled)
-						local wrist = getKillauraWrist()
-						if AnimTween then pcall(AnimTween.Destroy, AnimTween) AnimTween = nil end
-						if wrist and armC0 then wrist.C0 = armC0 end
 					end)
 				end
 
@@ -8963,19 +8719,9 @@ run(function()
 						end
 						local isClaw = _cachedIsClaw
 
-						local selfRoot = entitylib.character and entitylib.character.RootPart
-						if not selfRoot or not selfRoot.Parent then
-							Attacking = false
-							getgenv().Attacking = false
-							store.KillauraTarget = nil
-							_graceTarget = nil
-							_graceUntil = 0
-							task.wait(0.1)
-							continue
-						end
-						local selfpos = selfRoot.Position
-						local flatLV = selfRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
-						local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or selfRoot.CFrame.RightVector
+						local selfpos = entitylib.character.RootPart.Position
+						local flatLV = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
+						local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or entitylib.character.RootPart.CFrame.RightVector
 						local maxAngle = math.rad(AngleSlider.Value) / 2
 						local swingPlrs, attackPlrs = gatherTargets()
 
@@ -9076,17 +8822,13 @@ run(function()
 				if vapeTargetInfo and vapeTargetInfo.Targets then
 					vapeTargetInfo.Targets.Killaura = nil
 				end
-				if AnimTween then pcall(AnimTween.Destroy, AnimTween) AnimTween = nil end
-				local wrist = getKillauraWrist()
-				if wrist and armC0 then
-					pcall(function()
-						local restoreTween = tweenService:Create(wrist, TweenInfo.new(AnimationTween and AnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
-							C0 = armC0
-						})
-						restoreTween:Play()
-					end)
+				if armC0 then
+					if AnimTween then AnimTween:Destroy() AnimTween = nil end
+					AnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(AnimationTween and AnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
+						C0 = armC0
+					})
+					AnimTween:Play()
 				end
-				armC0 = nil
 			end
 		end,
 	})
@@ -9279,11 +9021,11 @@ run(function()
 
 	HitregMode = Killaura:CreateDropdown({
 		Name = 'Hitreg Mode',
-		List = {'Consistent', 'High Hit Reg', 'Legit'},
-		Default = 'Consistent',
+		List = {'Stealth Mode', 'Advanced Mode', 'Dynamic'},
+		Default = 'Stealth Mode',
 		Function = function(val)
 			if DynamicDelaySlider and DynamicDelaySlider.Object then
-				DynamicDelaySlider.Object.Visible = (val == 'Legit' or val == 'Dynamic')
+				DynamicDelaySlider.Object.Visible = (val == 'Dynamic')
 			end
 		end
 	})
@@ -9296,7 +9038,7 @@ run(function()
 			Suffix = '%',
 		Darker = true,
 		Visible = false,
-		Tooltip = 'Controls hit spacing dynamically (1-100%) when Legit mode is selected'
+		Tooltip = 'Controls hit spacing dynamically (1-100%) when Dynamic Hitreg Mode is selected'
 	})
 
 	UseKits = Killaura:CreateToggle({
