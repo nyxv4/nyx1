@@ -766,8 +766,14 @@ local function syncHandDesync()
 	local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 	if not check or not check.Value then return end
 	local serverTool = store.hand and store.hand.tool
-	if not serverTool or serverTool == check.Value or store._equipPending then
+	if not serverTool or serverTool == check.Value then
 		handDesyncAt = 0
+		return
+	end
+	if store._equipPending then
+		if tick() - (store._equipSince or 0) > 2 then
+			store._equipPending = false
+		end
 		return
 	end
 	local now = tick()
@@ -2393,6 +2399,13 @@ run(function()
 	local storeChanged = bedwars.Store.changed:connect(updateStore)
 	vape:Clean(function() storeChanged:disconnect() end)
 	updateStore(bedwars.Store:getState(), {})
+
+	task.spawn(function()
+		while true do
+			pcall(syncHandDesync)
+			task.wait(0.1)
+		end
+	end)
 
 	for _, event in {'MatchEndEvent', 'EntityDeathEvent', 'BedwarsBedBreak', 'BalloonPopped', 'AngelProgress', 'GrapplingHookFunctions'} do
 		if not vape.Connections then return end
