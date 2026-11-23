@@ -7130,6 +7130,7 @@ run(function()
 		local payload = {
 			weapon = weapon,
 			chargedAttack = {chargeRatio = 0},
+			lastSwingServerTimeDelta = 0.5,
 			entityInstance = entityInstance,
 			validate = {
 				raycast = {
@@ -8508,6 +8509,14 @@ run(function()
 		markAttackResult(true)
 
 		kaLastSend = srvNow
+		store.kaSent = (store.kaSent or 0) + 1
+		store.kaSentWindow = store.kaSentWindow or {n = 0, t = srvNow}
+		if srvNow - store.kaSentWindow.t >= 5 then
+			local rate = store.kaSentWindow.n / (srvNow - store.kaSentWindow.t)
+			store.kaSentWindow = {n = 0, t = srvNow}
+			warn(('[Killaura] diag: %.1f sends/s period=%.3f ping=%s'):format(rate, kaPeriod, tostring(netPing and netPing() or '?')))
+		end
+		store.kaSentWindow.n = store.kaSentWindow.n + 1
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
 			if kaLastSrv < srvNow then
