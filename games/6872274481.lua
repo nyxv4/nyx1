@@ -136,7 +136,13 @@ end
 local entitylib = vape.Libraries.entity
 local targetinfo = vape.Libraries.targetinfo
 local sessioninfo = vape.Libraries.sessioninfo
-local uipallet = vape.Libraries.uipallet
+local uipallet = vape.Libraries.uipallet or {
+	Main = Color3.fromRGB(26, 25, 26),
+	Text = Color3.fromRGB(200, 200, 200),
+	Font = Font.fromEnum(Enum.Font.Arial),
+	FontSemiBold = Font.fromEnum(Enum.Font.Arial, Enum.FontWeight.SemiBold),
+	Tween = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+}
 local UIPallet = uipallet
 local tween = vape.Libraries.tween
 local color = vape.Libraries.color
@@ -157,11 +163,13 @@ local function connectSignal(remote, fn)
 	end
 	local ev = remote.Event
 	if ev then
+		if typeof(ev) == 'Instance' and ev:IsA('BindableEvent') then return ev.Event:Connect(fn) end
 		local ok2, conn2 = pcall(function() return ev:Connect(fn) end)
 		if ok2 then return conn2 end
 	end
 	local oc = remote.OnClientEvent
 	if oc then
+		if typeof(oc) == 'Instance' and oc:IsA('RemoteEvent') then return oc.OnClientEvent:Connect(fn) end
 		local ok3, conn3 = pcall(function() return oc:Connect(fn) end)
 		if ok3 then return conn3 end
 	end
@@ -7416,14 +7424,14 @@ run(function()
 		local ClientSyncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
 		if ClientSyncEvents then
 			pcall(function()
-				ClientSyncEvents:Get('VoidHunter_TargetMarked'):Connect(function(data)
+				connectSignal(ClientSyncEvents:Get('VoidHunter_TargetMarked'), function(data)
 					skollMarked = true
 					skollMarkedTime = tick()
 					if data and data.target then
 						skollMarkedTarget = data.target
 					end
 				end)
-				ClientSyncEvents:Get('VoidHunter_TargetMarkedRemoved'):Connect(function()
+				connectSignal(ClientSyncEvents:Get('VoidHunter_TargetMarkedRemoved'), function()
 					skollMarked = false
 					skollMarkedTarget = nil
 				end)

@@ -3179,6 +3179,7 @@ targetinfo = {
 mainapi.Libraries.targetinfo = targetinfo
 
 function mainapi:UpdateTextGUI(afterload)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if not afterload and not mainapi.Loaded then return end
 	if interface.Button.Enabled then
 		local found = {}
@@ -3288,6 +3289,7 @@ function mainapi:UpdateTextGUI(afterload)
 end
 
 function mainapi:UpdateGUI(hue, sat, val, default)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if self.Loaded == nil then return end
 	if not default and self.GUIColor.Rainbow then return end
 	if interface.Button.Enabled then

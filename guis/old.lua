@@ -4145,6 +4145,7 @@ VapeLabelSorter.SortOrder = Enum.SortOrder.LayoutOrder
 VapeLabelSorter.Parent = VapeLabelHolder
 
 function mainapi:UpdateTextGUI(afterload)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if not afterload and not mainapi.Loaded then return end
 	if textgui.Button.Enabled then
 		local right = textgui.Children.AbsolutePosition.X > (gui.AbsoluteSize.X / 2)
@@ -4247,6 +4248,7 @@ function mainapi:UpdateModuleColor(button, hue, sat, val, default, rainbowcheck)
 end
 
 function mainapi:UpdateGUI(hue, sat, val, default)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if mainapi.Loaded == nil then return end
 	if not default and mainapi.GUIColor.Rainbow then return end
 	if textgui.Button.Enabled then

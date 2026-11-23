@@ -6888,6 +6888,7 @@ targetinfo = {
 mainapi.Libraries.targetinfo = targetinfo
 
 function mainapi:UpdateTextGUI(afterload)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if not afterload and not mainapi.Loaded then return end
 	if textgui.Button.Enabled then
 		local right = textgui.Children.AbsolutePosition.X > (gui.AbsoluteSize.X / 2)
@@ -7020,6 +7021,7 @@ function mainapi:UpdateTextGUI(afterload)
 end
 
 function mainapi:UpdateGUI(hue, sat, val, default)
+	if mainapi.ThreadFix then setthreadidentity(8) end
 	if mainapi.Loaded == nil then return end
 	if not default and mainapi.GUIColor.Rainbow then return end
 	if textgui.Button.Enabled then
