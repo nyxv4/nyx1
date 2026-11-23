@@ -1395,6 +1395,7 @@ components = {
 		return optionapi
 	end,
 	Targets = function(optionsettings, children, api)
+		local TargetsButton = components.TargetsButton or components.Toggle
 		local optionapi = {
 			Type = 'Targets',
 			Priority = {Value = 'Distance'},
@@ -1524,7 +1525,7 @@ components = {
 			end
 		end
 		
-		optionapi.Players = components.TargetsButton({
+		optionapi.Players = TargetsButton({
 			Position = UDim2.fromOffset(11, 45),
 			Icon = getcustomasset('NYX/assets/new/targetplayers1.png'),
 			IconSize = UDim2.fromOffset(15, 16),
@@ -1534,7 +1535,7 @@ components = {
 			Tooltip = 'Players',
 			Function = optionsettings.Function
 		}, window, tool)
-		optionapi.NPCs = components.TargetsButton({
+		optionapi.NPCs = TargetsButton({
 			Position = UDim2.fromOffset(112, 45),
 			Icon = getcustomasset('NYX/assets/new/targetnpc1.png'),
 			IconSize = UDim2.fromOffset(12, 16),
@@ -4003,7 +4004,7 @@ function mainapi:CreateCategory(categorysettings)
 			bindtext.TextColor3 = color.Dark(uipallet.Text, 0.43)
 			if not self.Enabled then
 				for _, v in self.Connections do
-					v:Disconnect()
+					pcall(function() v:Disconnect() end)
 				end
 				table.clear(self.Connections)
 			end
@@ -4221,7 +4222,7 @@ function mainapi:CreateOverlay(categorysettings)
 				window.Visible = callback and (clickgui.Visible or categoryapi.Pinned)
 				if not callback then
 					for _, v in categoryapi.Connections do
-						v:Disconnect()
+						pcall(function() v:Disconnect() end)
 					end
 					table.clear(categoryapi.Connections)
 				end
@@ -5284,7 +5285,7 @@ function mainapi:CreateLegit()
 			})
 			if not moduleapi.Enabled then
 				for _, v in moduleapi.Connections do
-					v:Disconnect()
+					pcall(function() v:Disconnect() end)
 				end
 				table.clear(moduleapi.Connections)
 			end
@@ -5794,7 +5795,7 @@ function mainapi:Uninject()
 	end
 	for _, v in mainapi.Connections do
 		pcall(function()
-			v:Disconnect()
+			pcall(function() v:Disconnect() end)
 		end)
 	end
 	if mainapi.ThreadFix then

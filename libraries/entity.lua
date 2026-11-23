@@ -393,7 +393,7 @@ entitylib.removeEntity = function(char, isLocal)
 		if entitylib.isAlive then
 			entitylib.isAlive = false
 			for _, v in entitylib.character.Connections do
-				v:Disconnect()
+				pcall(function() v:Disconnect() end)
 			end
 			table.clear(entitylib.character.Connections)
 			entitylib.Events.LocalRemoved:Fire(entitylib.character)
@@ -412,7 +412,7 @@ entitylib.removeEntity = function(char, isLocal)
 		local entity, index = entitylib.getEntity(char)
 		if index then
 			for _, v in entity.Connections do
-				v:Disconnect()
+				pcall(function() v:Disconnect() end)
 			end
 
 			table.clear(entity.Connections)
@@ -464,7 +464,7 @@ end
 entitylib.removePlayer = function(plr)
 	if entitylib.PlayerConnections[plr] then
 		for _, v in entitylib.PlayerConnections[plr] do
-			v:Disconnect()
+			pcall(function() v:Disconnect() end)
 		end
 
 		table.clear(entitylib.PlayerConnections[plr])
@@ -500,12 +500,12 @@ end
 
 entitylib.stop = function()
 	for _, v in entitylib.Connections do
-		v:Disconnect()
+		pcall(function() v:Disconnect() end)
 	end
 
 	for _, v in entitylib.PlayerConnections do
 		for _, v2 in v do
-			v2:Disconnect()
+			pcall(function() v2:Disconnect() end)
 		end
 		table.clear(v)
 	end

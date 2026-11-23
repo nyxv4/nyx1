@@ -420,7 +420,7 @@ function mainapi:CreateCategory(categorysettings)
 			self.Enabled = not self.Enabled
 			modulebutton.BackgroundColor3 = self.Enabled and Color3.new(0, 1, 0) or uipallet.Main
 			if not self.Enabled then
-				for _, v in self.Connections do v:Disconnect() end
+				for _, v in self.Connections do pcall(function() v:Disconnect() end) end
 				table.clear(self.Connections)
 			end
 			if not multiple then mainapi:UpdateTextGUI() end

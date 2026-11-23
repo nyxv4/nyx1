@@ -2060,7 +2060,7 @@ function mainapi:CreateCategory(categorysettings)
 			modulebutton.BackgroundTransparency = self.Enabled and 0 or 0.06
 			if not self.Enabled then
 				for _, v in self.Connections do
-					v:Disconnect()
+					pcall(function() v:Disconnect() end)
 				end
 				table.clear(self.Connections)
 			end
@@ -2381,7 +2381,7 @@ function mainapi:CreateLegit(categorysettings)
 			modulebutton.BackgroundTransparency = moduleapi.Enabled and 0 or 0.06
 			if not moduleapi.Enabled then
 				for _, v in moduleapi.Connections do
-					v:Disconnect()
+					pcall(function() v:Disconnect() end)
 				end
 				table.clear(moduleapi.Connections)
 			end
@@ -2501,7 +2501,7 @@ function mainapi:CreateOverlay(categorysettings)
 				window.Visible = callback and (clickgui.Visible or categoryapi.Pinned)
 				if not callback then
 					for _, v in categoryapi.Connections do
-						v:Disconnect()
+						pcall(function() v:Disconnect() end)
 					end
 					table.clear(categoryapi.Connections)
 				end
@@ -3350,7 +3350,7 @@ function mainapi:Uninject()
 	end
 	for _, v in mainapi.Connections do
 		pcall(function()
-			v:Disconnect()
+			pcall(function() v:Disconnect() end)
 		end)
 	end
 	if mainapi.ThreadFix then

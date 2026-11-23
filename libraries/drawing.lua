@@ -74,7 +74,12 @@ local classes = {
 	}
 }
 
-commchannel.Event:Connect(function(...)
+local commSignal = commchannel.Event
+if typeof(commSignal) == 'Instance' and commSignal:IsA('BindableEvent') then
+	commSignal = commSignal.Event
+end
+pcall(function()
+	commSignal:Connect(function(...)
 	local actor, key = ...
 	local args = {select(3, ...)}
 	if isactor and actor then
@@ -141,6 +146,7 @@ commchannel.Event:Connect(function(...)
 			end
 		end
 	end
+end)
 end)
 
 if isactor and not Drawing then

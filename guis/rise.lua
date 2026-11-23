@@ -1787,7 +1787,7 @@ function mainapi:CreateCategory(categorysettings)
 			})
 			if not self.Enabled then
 				for _, v in self.Connections do
-					v:Disconnect()
+					pcall(function() v:Disconnect() end)
 				end
 				table.clear(self.Connections)
 			end
@@ -2147,7 +2147,7 @@ function mainapi:CreateOverlay(categorysettings)
 				customchildren.Visible = callback
 				if not callback then
 					for _, v in categoryapi.Connections do
-						v:Disconnect()
+						pcall(function() v:Disconnect() end)
 					end
 					table.clear(categoryapi.Connections)
 				end
@@ -2488,7 +2488,7 @@ function mainapi:Uninject()
 	end
 	for _, v in mainapi.Connections do
 		pcall(function()
-			v:Disconnect()
+			pcall(function() v:Disconnect() end)
 		end)
 	end
 	if mainapi.ThreadFix then

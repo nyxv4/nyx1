@@ -154,9 +154,16 @@ local getcustomasset = vape.Libraries.getcustomasset
 -- Client:Get() remotes come back as different shapes (remote wrappers, BindableEvents,
 -- RBXScriptSignals); :Connect only exists on some of them.
 local function connectSignal(remote, fn)
-	if remote == nil then return nil end
+	local missing = getgenv().NYXMissingModule
+	local noop = {Disconnect = function() end}
+	if remote == nil or remote == missing then return noop end
+	local function goodConn(c)
+		if c == nil or c == missing then return nil end
+		local ok, d = pcall(function() return c.Disconnect end)
+		return (ok and d ~= nil) and c or nil
+	end
 	local ok, conn = pcall(function() return remote:Connect(fn) end)
-	if ok then return conn end
+	if ok then return goodConn(conn) or noop end
 	if typeof(remote) == 'Instance' then
 		if remote:IsA('BindableEvent') then return remote.Event:Connect(fn) end
 		if remote:IsA('RemoteEvent') then return remote.OnClientEvent:Connect(fn) end
@@ -165,15 +172,15 @@ local function connectSignal(remote, fn)
 	if ev then
 		if typeof(ev) == 'Instance' and ev:IsA('BindableEvent') then return ev.Event:Connect(fn) end
 		local ok2, conn2 = pcall(function() return ev:Connect(fn) end)
-		if ok2 then return conn2 end
+		if ok2 then return goodConn(conn2) or noop end
 	end
 	local oc = remote.OnClientEvent
 	if oc then
 		if typeof(oc) == 'Instance' and oc:IsA('RemoteEvent') then return oc.OnClientEvent:Connect(fn) end
 		local ok3, conn3 = pcall(function() return oc:Connect(fn) end)
-		if ok3 then return conn3 end
+		if ok3 then return goodConn(conn3) or noop end
 	end
-	return nil
+	return noop
 end
 
 local store = {
@@ -7132,7 +7139,7 @@ run(function()
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
 		local Budget = 0
-		local Hits = 35
+		local Hits = 36
 		
 		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
 		local effectiveDelay
@@ -16226,14 +16233,16 @@ run(function()
 		if store.hand.toolType == 'block' then
 			return store.hand.tool.Name, store.hand.amount
 		elseif (not LimitItem.Enabled) then
-			local isHoldingSwordOrTool = store.hand.toolType == 'sword' or (store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name].sword)
+			local handMeta = store.hand.tool and bedwars.ItemMeta[store.hand.tool.Name]
+			local isHoldingSwordOrTool = store.hand.toolType == 'sword' or (handMeta and handMeta.sword)
 			if not isHoldingSwordOrTool then
 				local wool, amount = getWool()
 				if wool then
 					return wool, amount
 				else
-					for _, item in store.inventory.inventory.items do
-						if bedwars.ItemMeta[item.itemType].block then
+					for _, item in (store.inventory.inventory.items or {}) do
+						local itemMeta = bedwars.ItemMeta[item.itemType]
+						if itemMeta and itemMeta.block then
 							return item.itemType, item.amount
 						end
 					end
