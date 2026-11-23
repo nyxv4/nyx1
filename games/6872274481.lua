@@ -7339,6 +7339,20 @@ run(function()
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
+	local function findEquippedMeleeTool()
+		local char = lplr.Character
+		local function scan(parent)
+			if not parent then return nil end
+			for _, c in parent:GetChildren() do
+				if c:IsA('Tool') and isMeleeWeapon(c.Name) then
+					return {tool = c, amount = 1}
+				end
+			end
+			return nil
+		end
+		return scan(char) or scan(lplr:FindFirstChildOfClass('Backpack'))
+	end
+
 	local function computeAttackData()
 		store.kaDataBlock = nil
 		if not entitylib.isAlive then store.kaDataBlock = 'dead' return false end
@@ -7371,11 +7385,16 @@ run(function()
 		if not sword or not sword.tool or not isMeleeWeapon(sword.tool.Name) then
 			sword = (Limit and Limit.Enabled) and nil or store.tools.sword
 		end
+		if (not sword or not sword.tool) and not (Limit and Limit.Enabled) then
+			sword = findEquippedMeleeTool()
+		end
 		if not sword or not sword.tool then store.kaDataBlock = 'no-sword-tool' return false end
 
 		local itemMeta = bedwars.ItemMeta
 		local meta = itemMeta and (itemMeta[sword.tool.Name] or findItemMeta(sword.tool.Name))
-		if not meta then store.kaDataBlock = 'no-itemmeta:' .. tostring(sword.tool and sword.tool.Name) return false end
+		if not meta then
+			meta = {sword = {attackSpeed = 0.35, damage = 10, attackRange = 14.4}}
+		end
 
 		if Limit and Limit.Enabled then
 			if not isMeleeWeapon(sword.tool.Name) or (bedwars.DaoController and bedwars.DaoController.chargingMaid) then
