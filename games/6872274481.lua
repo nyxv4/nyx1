@@ -1499,9 +1499,27 @@ run(function()
 		PlayerProfileUIController = require(lplr.PlayerScripts.TS.controllers.global['player-profile']['player-profile-ui-controller']),
 		HudAliveCount = require(lplr.PlayerScripts.TS.controllers.global['top-bar'].ui.game['hud-alive-player-counts']).HudAlivePlayerCounts,
 		ItemMeta = (function()
-			local fn = require(replicatedStorage.TS.item['item-meta']).getItemMeta
+			local okM, mod = pcall(require, replicatedStorage.TS.item['item-meta'])
+			if okM and type(mod) == 'table' then
+				for _, k in {'ItemMeta', 'itemMeta', 'ItemMetadata', 'ItemMetaTable', 'Defaults'} do
+					local v = mod[k]
+					if type(v) == 'table' and next(v) then return v end
+				end
+				for _, v in pairs(mod) do
+					if type(v) == 'table' then
+						local n = 0
+						for key in pairs(v) do
+							if type(key) == 'string' then
+								n = n + 1
+								if n > 30 then return v end
+							end
+						end
+					end
+				end
+			end
+			local fn = okM and mod and mod.getItemMeta
 			if type(fn) ~= 'function' then return {} end
-			for i = 1, 6 do
+			for i = 1, 15 do
 				local okU, _, v = pcall(debug.getupvalue, fn, i)
 				if okU and type(v) == 'table' and next(v) then return v end
 			end
@@ -8534,26 +8552,6 @@ run(function()
 				task.wait(0.2)
 			end
 			if not hasSend(sc) then warn('[KA] SwordController.sendServerRequest not found') return end
-			local function dumpConst(fn, label)
-				if type(fn) ~= 'function' or not debug.getconstants then return end
-				local okc, consts = pcall(debug.getconstants, fn)
-				if okc and type(consts) == 'table' then
-					local strs = {}
-					for _, c in ipairs(consts) do
-						if type(c) == 'string' then table.insert(strs, c) end
-					end
-					warn(('[KA] %s constants: %s'):format(label, table.concat(strs, ' | ')))
-				end
-			end
-			dumpConst(sc.sendServerRequest, 'sendServerRequest')
-			for name, fn in pairs(sc) do
-				if type(fn) == 'function' and name ~= 'sendServerRequest' then
-					local ln = name:lower()
-					if ln:find('swing') or ln:find('attack') or ln:find('hit') or ln:find('request') then
-						dumpConst(fn, 'SwordController.' .. name)
-					end
-				end
-			end
 		end)
 	end)
 
@@ -8686,7 +8684,7 @@ run(function()
 		if srvNow - store.kaSentWindow.t >= 5 then
 			local rate = store.kaSentWindow.n / (srvNow - store.kaSentWindow.t)
 			store.kaSentWindow = {n = 0, t = srvNow}
-			warn(('[Killaura] diag: %.1f sends/s hits=%d period=%.3f ping=%s'):format(rate, store.kaHits or 0, kaPeriod, tostring(netPing and netPing() or '?')))
+			-- diagnostics removed: console stays clean
 		end
 		store.kaSentWindow.n = store.kaSentWindow.n + 1
 		if kaLastSrv > 0 then
@@ -8757,17 +8755,7 @@ run(function()
 						warn('[Killaura] attemptFire error: ' .. tostring(err))
 					end
 				end
-				-- throttled blocker report so a dead aura says why
-				local nowT = tick()
-				if nowT - (store._kaDiagT or 0) >= 5 then
-					store._kaDiagT = nowT
-					if (store.kaSentWindow and store.kaSentWindow.n or 0) == 0 then
-						warn(('[Killaura] blocked: %s data=%s period=%.3f range=%s targets(P=%s,N=%s)'):format(
-							tostring(store.kaBlock), tostring(store.kaDataBlock), kaPeriod, tostring(AttackRange and AttackRange.Value),
-							tostring(Targets and Targets.Players and Targets.Players.Enabled),
-							tostring(Targets and Targets.NPCs and Targets.NPCs.Enabled)))
-					end
-				end
+				-- blocker diagnostics removed: console stays clean
 			end
 		end)
 	end
@@ -8824,19 +8812,6 @@ run(function()
 				end
 
 				startKillauraFireLoop()
-
-				task.delay(2, function()
-					local miss = getgenv().NYXMissingModule
-					local function st(v) return v == miss and 'proxy' or type(v) end
-					local im = bedwars.ItemMeta
-					local imState = type(im) ~= 'table' and type(im) or (im == miss and 'proxy' or (next(im) and 'ok' or 'empty'))
-					local sd, sm = getAttackData()
-					warn(('[KA] state: Client=%s Store=%s ItemMeta=%s hand=%s toolSword=%s attackData=%s/%s'):format(
-						st(bedwars.Client), st(bedwars.Store), tostring(imState),
-						tostring(store.hand and store.hand.tool and store.hand.tool.Name or 'nil'),
-						tostring(store.tools and store.tools.sword and store.tools.sword.tool and store.tools.sword.tool.Name or 'nil'),
-						tostring(sd ~= nil and sd ~= false), tostring(sm ~= nil)))
-				end)
 
 				if Animation and Animation.Enabled and not (identifyexecutor and table.find({'Argon', 'Delta'}, ({identifyexecutor()})[1])) then
 					task.spawn(function()
