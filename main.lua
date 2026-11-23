@@ -345,9 +345,7 @@ if not shared.VapeIndependent then
 	table.insert(sourcePaths, 'NYX/libraries/prediction.lua')
 	table.insert(sourcePaths, 'NYX/libraries/entity.lua')
 	table.insert(sourcePaths, 'NYX/games/universal.lua')
-	if not shared.VapeDeveloper or (isfile(gamePath) and readfile(gamePath) ~= '') then
-		table.insert(sourcePaths, gamePath)
-	end
+	table.insert(sourcePaths, gamePath)
 end
 
 local sources = {}
@@ -502,6 +500,8 @@ if not shared.VapeIndependent then
 		gameFunc(...)
 	elseif isfile(gamePath) and readfile(gamePath) ~= '' then
 		error('[NYX] could not load ' .. gameFileId .. '.lua')
+	else
+		warn('[NYX] no game file for ' .. tostring(gameFileId) .. ' - only universal modules loaded')
 	end
 	finishLoading()
 else
