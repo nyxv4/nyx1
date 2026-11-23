@@ -8499,6 +8499,12 @@ run(function()
 			return false
 		end
 
+		pcall(function()
+			local syncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
+			local ev = syncEvents and syncEvents.Get and syncEvents:Get('SwordSwing')
+			if ev and ev.Fire then ev:Fire({player = lplr}) end
+		end)
+
 		local srvNow = workspace:GetServerTimeNow()
 
 		lastAttackTime = tick()
