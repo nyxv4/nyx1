@@ -1386,6 +1386,12 @@ run(function()
 			return c == nil and _missingModule or c
 		end,
 	})
+	-- Real controller lookup: missing controllers must read as nil so
+	-- `if ctrl and ctrl.field` guards don't treat the inert proxy as present.
+	local function _realCtrl(name)
+		local c = Knit.Controllers or _ctrls
+		return c and c[name]
+	end
 
 	local Flamework = require(replicatedStorage['rbxts_include']['node_modules']['@flamework'].core.out).Flamework or _missingModule
 	local InventoryUtil = require(replicatedStorage.TS.inventory['inventory-util']).InventoryUtil
@@ -1404,9 +1410,23 @@ run(function()
 
 	local _bedwarsMT = {
 		__index = function(self, ind)
-			local v = KC[ind]
-			rawset(self, ind, v)
-			return v
+			local v = _realCtrl(ind)
+			if v ~= nil then
+				rawset(self, ind, v)
+				return v
+			end
+			if ind == 'KnitClient' then
+				rawset(self, ind, Knit)
+				return Knit
+			end
+			-- Missing *Controller fields read as nil so presence guards work;
+			-- other missing fields keep the inert proxy for chained access.
+			if type(ind) == 'string' and ind:sub(-10) == 'Controller' then
+				return nil
+			end
+			local p = _missingModule
+			rawset(self, ind, p)
+			return p
 		end
 	}
 	local _okBedwars, _builtBedwars = pcall(function()
@@ -1420,11 +1440,11 @@ run(function()
 		BlockSelector = require(game:GetService("ReplicatedStorage").rbxts_include.node_modules["@easy-games"]["block-engine"].out.client.select["block-selector"]).BlockSelector,
 		KnockbackUtilInstance = replicatedStorage.TS.damage['knockback-util'],
 		BedwarsKitSkin = require(replicatedStorage.TS.games.bedwars['kit-skin']['bedwars-kit-skin-meta']).BedwarsKitSkinMeta,
-		KitController = KC.KitController,
+		KitController = _realCtrl('KitController'),
 		FishermanUtil = require(replicatedStorage.TS.games.bedwars.kit.kits.fisherman['fisherman-util']).FishermanUtil,
 		FishMeta = require(replicatedStorage.TS.games.bedwars.kit.kits.fisherman['fish-meta']),
 	 	MatchHistoryApp = require(lplr.PlayerScripts.TS.controllers.global["match-history"].ui["match-history-moderation-app"]).MatchHistoryModerationApp,
-	 	MatchHistoryController = KC.MatchHistoryController,
+	 	MatchHistoryController = _realCtrl('MatchHistoryController'),
 		BlockEngine = require(game:GetService("ReplicatedStorage").rbxts_include.node_modules["@easy-games"]["block-engine"].out).BlockEngine,
 		BlockSelectorMode = require(game:GetService("ReplicatedStorage").rbxts_include.node_modules["@easy-games"]["block-engine"].out.client.select["block-selector"]).BlockSelectorMode,
 		EntityUtil = require(game:GetService("ReplicatedStorage").TS.entity["entity-util"]).EntityUtil,
@@ -1492,7 +1512,7 @@ run(function()
 		Knit = Knit,
 		KnockbackUtil = require(replicatedStorage.TS.damage['knockback-util']).KnockbackUtil,
 		MageKitUtil = require(replicatedStorage.TS.games.bedwars.kit.kits.mage['mage-kit-util']).MageKitUtil,
-		NametagController = KC.NametagController,
+		NametagController = _realCtrl('NametagController'),
 		PartyController = Flamework.resolveDependency("@easy-games/lobby:client/controllers/party-controller@PartyController"),
 		ProjectileMeta = require(replicatedStorage.TS.projectile['projectile-meta']).ProjectileMeta,
 		QueryUtil = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).GameQueryUtil,
