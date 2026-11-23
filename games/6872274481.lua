@@ -7322,51 +7322,53 @@ run(function()
 	end
 
 	local function computeAttackData()
-		if not entitylib.isAlive then return false end
+		store.kaDataBlock = nil
+		if not entitylib.isAlive then store.kaDataBlock = 'dead' return false end
 
 		local casting = lplr:GetAttribute('IsCasting')
 		if casting ~= nil and casting ~= false and casting ~= 0 and casting ~= '' then
-			if casting == true then return false end
-			if type(casting) == 'number' and casting > workspace:GetServerTimeNow() then return false end
+			if casting == true then store.kaDataBlock = 'casting' return false end
+			if type(casting) == 'number' and casting > workspace:GetServerTimeNow() then store.kaDataBlock = 'casting' return false end
 		end
 
-		if bedwars.SwordController and bedwars.SwordController.disableSwingState then return false end
+		if bedwars.SwordController and bedwars.SwordController.disableSwingState then store.kaDataBlock = 'swing-disabled' return false end
 
 		local stunned = lplr.Character and lplr.Character:GetAttribute('StunnedUntilTime')
-		if stunned and stunned > workspace:GetServerTimeNow() then return false end
+		if stunned and stunned > workspace:GetServerTimeNow() then store.kaDataBlock = 'stunned' return false end
 
 		if AttackCheck and AttackCheck.Enabled then
 			if kitChecks then
 				for _, check in pairs(kitChecks) do
 					local ok, res = pcall(check)
-					if ok and res then return false end
+					if ok and res then store.kaDataBlock = 'kitcheck' return false end
 				end
 			end
 		end
 
-		if tick() - (store.silasAbilityTime or 0) < 2.2 then return false end
-		if tick() - (store.terraStompTime or 0) < 0.7 then return false end
-		if tick() - (store.terraKickTime or 0) < 0.5 then return false end
+		if tick() - (store.silasAbilityTime or 0) < 2.2 then store.kaDataBlock = 'silas-cd' return false end
+		if tick() - (store.terraStompTime or 0) < 0.7 then store.kaDataBlock = 'terra-stomp' return false end
+		if tick() - (store.terraKickTime or 0) < 0.5 then store.kaDataBlock = 'terra-kick' return false end
 
 		local sword = store.hand
 		if not sword or not sword.tool or not isMeleeWeapon(sword.tool.Name) then
 			sword = (Limit and Limit.Enabled) and nil or store.tools.sword
 		end
-		if not sword or not sword.tool then return false end
+		if not sword or not sword.tool then store.kaDataBlock = 'no-sword-tool' return false end
 
 		local itemMeta = bedwars.ItemMeta
 		local meta = itemMeta and (itemMeta[sword.tool.Name] or findItemMeta(sword.tool.Name))
-		if not meta then return false end
+		if not meta then store.kaDataBlock = 'no-itemmeta:' .. tostring(sword.tool and sword.tool.Name) return false end
 
 		if Limit and Limit.Enabled then
 			if not isMeleeWeapon(sword.tool.Name) or (bedwars.DaoController and bedwars.DaoController.chargingMaid) then
+				store.kaDataBlock = 'limit-block'
 				return false
 			end
 		end
 
 		if LegitAura and LegitAura.Enabled then
 			local lastSwing = bedwars.SwordController and bedwars.SwordController.lastSwing
-			if not lastSwing or (tick() - lastSwing) > 0.25 then return false end
+			if not lastSwing or (tick() - lastSwing) > 0.25 then store.kaDataBlock = 'legit-swing-wait' return false end
 		end
 
 		return sword, meta
@@ -8760,8 +8762,8 @@ run(function()
 				if nowT - (store._kaDiagT or 0) >= 5 then
 					store._kaDiagT = nowT
 					if (store.kaSentWindow and store.kaSentWindow.n or 0) == 0 then
-						warn(('[Killaura] blocked: %s period=%.3f range=%s targets(P=%s,N=%s)'):format(
-							tostring(store.kaBlock), kaPeriod, tostring(AttackRange and AttackRange.Value),
+						warn(('[Killaura] blocked: %s data=%s period=%.3f range=%s targets(P=%s,N=%s)'):format(
+							tostring(store.kaBlock), tostring(store.kaDataBlock), kaPeriod, tostring(AttackRange and AttackRange.Value),
 							tostring(Targets and Targets.Players and Targets.Players.Enabled),
 							tostring(Targets and Targets.NPCs and Targets.NPCs.Enabled)))
 					end
@@ -8822,6 +8824,19 @@ run(function()
 				end
 
 				startKillauraFireLoop()
+
+				task.delay(2, function()
+					local miss = getgenv().NYXMissingModule
+					local function st(v) return v == miss and 'proxy' or type(v) end
+					local im = bedwars.ItemMeta
+					local imState = type(im) ~= 'table' and type(im) or (im == miss and 'proxy' or (next(im) and 'ok' or 'empty'))
+					local sd, sm = getAttackData()
+					warn(('[KA] state: Client=%s Store=%s ItemMeta=%s hand=%s toolSword=%s attackData=%s/%s'):format(
+						st(bedwars.Client), st(bedwars.Store), tostring(imState),
+						tostring(store.hand and store.hand.tool and store.hand.tool.Name or 'nil'),
+						tostring(store.tools and store.tools.sword and store.tools.sword.tool and store.tools.sword.tool.Name or 'nil'),
+						tostring(sd ~= nil and sd ~= false), tostring(sm ~= nil)))
+				end)
 
 				if Animation and Animation.Enabled and not (identifyexecutor and table.find({'Argon', 'Delta'}, ({identifyexecutor()})[1])) then
 					task.spawn(function()
