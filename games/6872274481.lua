@@ -7145,12 +7145,21 @@ run(function()
 		if net then
 			local previous = store.kaSending
 			store.kaSending = true
-			local ok = pcall(net.SendToServer, net, payload)
+			local ok, sendErr = pcall(net.SendToServer, net, payload)
 			store.kaSending = previous
 			if ok then return true end
+			if not store._kaNetErrWarned and (tick() - (store._kaNetErrAt or 0)) >= 2 then
+				store._kaNetErrWarned = true
+				store._kaNetErrAt = tick()
+				warn('[Killaura] net SendToServer failed: ' .. tostring(sendErr))
+			end
 		end
 
 		if not AttackRemote then return false end
+		if not store._kaRawWarned then
+			store._kaRawWarned = true
+			warn('[Killaura] net attack path unavailable, falling back to raw remote (hits will ghost)')
+		end
 		AttackRemote:FireServer(payload)
 		return true
 	end
