@@ -7038,17 +7038,20 @@ run(function()
 	end
 
 	local function getAttackDelay(meta)
-		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
+		local mode = (HitregMode and HitregMode.Value) or 'Consistent'
+		if mode == 'Stealth Mode' then mode = 'Consistent'
+		elseif mode == 'Advanced Mode' then mode = 'High Hit Reg'
+		elseif mode == 'Dynamic' then mode = 'Legit' end
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
 		local Budget = 0
 		local Hits = 35
 		
-		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
+		-- High Hit Reg: 48.55, Consistent: 50, Legit: slider value
 		local effectiveDelay
-		if mode == 'Dynamic' then
+		if mode == 'Legit' then
 			effectiveDelay = dynDelay
-		elseif mode == 'Advanced Mode' then
+		elseif mode == 'High Hit Reg' then
 			effectiveDelay = 49.55
 		else
 			effectiveDelay = 50
@@ -8986,11 +8989,11 @@ run(function()
 
 	HitregMode = Killaura:CreateDropdown({
 		Name = 'Hitreg Mode',
-		List = {'Stealth Mode', 'Advanced Mode', 'Dynamic'},
-		Default = 'Stealth Mode',
+		List = {'Consistent', 'High Hit Reg', 'Legit'},
+		Default = 'Consistent',
 		Function = function(val)
 			if DynamicDelaySlider and DynamicDelaySlider.Object then
-				DynamicDelaySlider.Object.Visible = (val == 'Dynamic')
+				DynamicDelaySlider.Object.Visible = (val == 'Legit' or val == 'Dynamic')
 			end
 		end
 	})
@@ -9003,7 +9006,7 @@ run(function()
 			Suffix = '%',
 		Darker = true,
 		Visible = false,
-		Tooltip = 'Controls hit spacing dynamically (1-100%) when Dynamic Hitreg Mode is selected'
+		Tooltip = 'Controls hit spacing dynamically (1-100%) when Legit mode is selected'
 	})
 
 	UseKits = Killaura:CreateToggle({
