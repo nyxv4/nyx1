@@ -7611,6 +7611,7 @@ run(function()
 	local FireRates: {[string]: number} = {}
 	local LastShot = 0.095
 	local FastHitPending = false
+	local fhShotSeq = 0
 
 	local function getAmmo(check)
 		for _, item in store.inventory.inventory.items do
@@ -7668,18 +7669,53 @@ run(function()
 		return math.acos(math.clamp(flatLook.Unit:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
 	end
 
+	local function fhAwaitHand(tool, timeout)
+		local name = tool.Name
+		local deadline = tick() + timeout
+		while tick() < deadline do
+			local hand = store.hand and store.hand.tool
+			if hand and (hand == tool or hand.Name == name) then return true end
+			task.wait()
+		end
+		return false
+	end
+
+	local function fhSwapTimeout()
+		return math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
+	end
+
+	-- The server only accepts the shot if its own hand already holds the tool, so wait for the
+	-- equip round trip instead of firing after a fixed sleep.
+	local fhHubTool = nil
+	local fhLegitShot = false
 	local function fhEquipAwait(tool)
 		if not tool or not tool.Parent then return false end
-		local success = pcall(switchItem, tool, 0.0475)
-		return success
+		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
+		local handNow = store.hand and store.hand.tool
+		if check and check.Value == tool and handNow and (handNow == tool or handNow.Name == tool.Name) then return true end
+		local switchedNow = false
+		pcall(function() switchedNow = switchItem(tool, 0) == true end)
+		if not switchedNow then return false end
+		fhHubTool = tool
+		local timeout = fhSwapTimeout()
+		if fhAwaitHand(tool, timeout) then return true end
+		pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = tool}) end)
+		return fhAwaitHand(tool, math.min(timeout, 0.2))
 	end
 
 	local fhRestoreToken = 0
 	local function fhRestoreSword()
+		if fhLegitShot then return end
 		local sw = store.tools.sword
 		if not sw or not sw.tool or not sw.tool.Parent then return end
 		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 		if not check then return end
+		-- If the player picked something else while the shot was in flight, that is their hand now.
+		if fhHubTool and check.Value and check.Value ~= fhHubTool and check.Value.Parent then
+			fhHubTool = nil
+			return
+		end
+		fhHubTool = nil
 		fhRestoreToken = fhRestoreToken + 1
 		local token = fhRestoreToken
 		check.Value = sw.tool
@@ -7690,6 +7726,7 @@ run(function()
 				if token ~= fhRestoreToken then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
+				if isProjectileTool(liveHandTool()) then return end
 				if check.Value ~= sw.tool or (store.hand and store.hand.tool ~= sw.tool) then
 					check.Value = sw.tool
 					pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
@@ -7912,14 +7949,29 @@ run(function()
 		)
 
 		FastHitPending = true
+		fhShotSeq = fhShotSeq + 1
+		local shotSeq = fhShotSeq
 		task.spawn(function()
-			local res = projectileRemote:InvokeServer(
+			-- The bow stays in hand until the server has taken the shot, then the sword comes back.
+			local ok, res = pcall(projectileRemote.InvokeServer, projectileRemote,
 				item.tool, ammo, projectile, shootPos, selfPos,
 				dir * projSpeed, id, shotMeta,
 				workspace:GetServerTimeNow() - 0.05
 			)
 			FastHitPending = false
-			if res then
+			if shotSeq == fhShotSeq then
+				if switched and not fhLegitShot then
+					pcall(fhRestoreSword)
+					local deadline = tick() + math.min(getFHPing() * 0.6, 0.2)
+					while tick() < deadline do
+						local hand = store.hand and store.hand.tool
+						if hand and not isProjectileTool(hand) then break end
+						task.wait()
+					end
+				end
+				fhBusy = false
+			end
+			if ok and res then
 				pcall(function() res.Parent = replicatedStorage end)
 				local sound = itemMeta.launchSound
 				sound = sound and sound[math.random(1, #sound)] or nil
@@ -7929,11 +7981,13 @@ run(function()
 				lastProjectileTime = workspace:GetServerTimeNow()
 			end
 		end)
-
-		if switched then
-			fhRestoreSword()
-			fhBusy = false
-		end
+		-- Never leave the auras gated if the remote never answers.
+		task.delay(0.45, function()
+			if shotSeq == fhShotSeq and fhBusy then
+				if switched and not fhLegitShot then pcall(fhRestoreSword) end
+				fhBusy = false
+			end
+		end)
 
 		return true
 	end
@@ -8217,11 +8271,19 @@ run(function()
 
 		fhBusy = true
 		store._fhBusySince = workspace:GetServerTimeNow()
+		local handReady = false
+		fhLegitShot = true
 		local shotOk, shotErr = pcall(function()
-			if hotbarSwitch(bowSlot) then task.wait(0.0375) end
-			shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-			task.wait(0.075)
+			if hotbarSwitch(bowSlot) then
+				handReady = fhAwaitHand(item.tool, fhSwapTimeout())
+			end
+			-- Firing before the server sees the bow swap gets the shot rejected.
+			if handReady then
+				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
+				task.wait(0.02)
+			end
 		end)
+		fhLegitShot = false
 
 		-- Restore the exact slot selected before the projectile switch.
 		if originalSlot ~= nil then
