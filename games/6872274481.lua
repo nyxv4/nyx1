@@ -7065,9 +7065,9 @@ run(function()
 		if mode == 'Legit' then
 			effectiveDelay = dynDelay
 		elseif mode == 'High Hit Reg' then
-			effectiveDelay = 30
+			effectiveDelay = 20
 		else
-			effectiveDelay = 35
+			effectiveDelay = 25
 		end
 		
 		-- This decouples hit registration from animation speed

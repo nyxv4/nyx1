@@ -3842,6 +3842,7 @@ function mainapi:CreateCategory(categorysettings)
 	windowlist.Parent = children
 
 	function categoryapi:CreateModule(modulesettings)
+		if setthreadidentity then pcall(setthreadidentity, 8) end
 		mainapi:Remove(modulesettings.Name)
 		local moduleapi = {
 			Enabled = false,
@@ -5144,6 +5145,7 @@ function mainapi:CreateLegit()
 	table.insert(mainapi.Windows, window)
 
 	function legitapi:CreateModule(modulesettings)
+		if setthreadidentity then pcall(setthreadidentity, 8) end
 		mainapi:Remove(modulesettings.Name)
 		local moduleapi = {
 			Enabled = false,
