@@ -9748,7 +9748,8 @@ run(function()
 	
 			if callback then
 				if savedImpulseTime == nil then
-					savedImpulseTime = bedwars.StatefulEntityKnockbackController.lastImpulseTime
+					local sekc = bedwars.StatefulEntityKnockbackController
+					savedImpulseTime = sekc and sekc.lastImpulseTime
 				end
 				Speed:Clean(function()
 					pcall(function()
@@ -9767,7 +9768,8 @@ run(function()
 				end)
 				Speed:Clean(runService.PreSimulation:Connect(function(dt)
 					if not Speed.Enabled then return end
-					bedwars.StatefulEntityKnockbackController.lastImpulseTime = math.huge
+					local sekc = bedwars.StatefulEntityKnockbackController
+					if sekc then sekc.lastImpulseTime = math.huge end
 					if entitylib.isAlive then
 						if not (Fly and Fly.Enabled) and not (LongJump and LongJump.Enabled) then
 							bedwars.SprintController:setSpeed(Mode.Value == 'CFrame' and 20 or Value.Value)
