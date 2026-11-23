@@ -8335,29 +8335,27 @@ run(function()
 				return g
 			end
 		end
-		local now = tick()
-		if (now - _fastAcqTime) < 0.03 and _fastAcqRes then
-			if not (aliveTarget(_fastAcqRes) and withinAngle(_fastAcqRes) and inReach(_fastAcqRes)) then return nil end
-			return _fastAcqRes
-		end
-		_fastAcqTime = now
-		_fastAcqRes = nil
+		-- Walls are raycast only for the angled candidates we actually consider, in sort order,
+		-- instead of once per entity inside AllPosition. Same result, far fewer rays per attempt.
+		local walls = Targets.Walls.Enabled
 		local list = entitylib.AllPosition({
 			Range = AttackRange.Value + 0,
-			Wallcheck = Targets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = Targets.Players.Enabled,
 			NPCs = Targets.NPCs.Enabled,
-			Limit = 5,
+			Limit = 8,
 			Sort = sortmethods[Sort.Value] or sortmethods['Distance']
 		})
+		local root = entitylib.character and entitylib.character.RootPart
+		local resolved = nil
 		for _, ent in list do
 			if withinAngle(ent) then
-				_fastAcqRes = ent
+				if walls and root and entitylib.Wallcheck(root.Position, ent.RootPart.Position, nil, ent) then continue end
+				resolved = ent
 				break
 			end
 		end
-		return _fastAcqRes
+		return resolved
 	end
 
 	local function attemptFire()
@@ -8383,11 +8381,13 @@ run(function()
 		end)
 
 		local char = lplr.Character
-		if not char or not char.PrimaryPart then return false end
+		if not char then return false end
 		local tchar = v.Character
-		if not tchar or not tchar.PrimaryPart then return false end
-		local selfPos = entitylib.character.RootPart.Position
-		local targetPos = tchar.PrimaryPart.Position
+		if not tchar or not tchar.Parent then return false end
+		local selfRoot = entitylib.character and entitylib.character.RootPart
+		local selfPos = selfRoot and selfRoot.Position
+		local targetPos = v.RootPart and v.RootPart.Position
+		if not selfPos or not targetPos then return false end
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > AttackRange.Value + 0 then return false end
 
@@ -8400,7 +8400,7 @@ run(function()
 					inAir = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
 				end
 				if not inAir then
-					local root = tchar.PrimaryPart
+					local root = v.RootPart
 					local vy = root and root.AssemblyLinearVelocity.Y or 0
 					inAir = math.abs(vy) > 3
 				end
@@ -8609,7 +8609,7 @@ run(function()
 					local sort = sortmethods[Sort.Value]
 
 					local function buildList(range)
-						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 1, Sort = sort})
+						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 5, Sort = sort})
 					end
 
 					local attackPlrs = buildList(AttackRange.Value)
