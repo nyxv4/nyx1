@@ -2363,7 +2363,7 @@ run(function()
 		end)
 		if waitOk and promise and promise.andThen then
 			local chain = promise:andThen(function(connection)
-				vape:Clean(connection:Connect(function(...)
+				vape:Clean(connectSignal(connection, function(...)
 					vapeEvents[event]:Fire(...)
 				end))
 			end)
@@ -7031,7 +7031,7 @@ run(function()
 	local lastAnimTime = 0 -- Track when last animation was played to prevent doubling
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.296 -- Killaura hit period fallback matching SafeSpacing
+	local HIT_PERIOD = 0.285 -- Killaura hit period fallback (~35 hits/10s)
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
@@ -7276,13 +7276,28 @@ run(function()
 	local _adCacheMeta = nil
 	local _adCacheTime = 0
 
+	local function findItemMeta(toolName)
+		local itemMeta = bedwars.ItemMeta
+		if not itemMeta or type(itemMeta) ~= 'table' or not toolName then return nil end
+		local direct = itemMeta[toolName]
+		if direct then return direct end
+		local lower = toolName:lower()
+		local underscored = lower:gsub('[%s%-]+', '_')
+		for key, meta in pairs(itemMeta) do
+			if type(key) == 'string' and (key:lower() == lower or key:lower() == underscored or key:lower():gsub('[%s%-]+', '_') == underscored) then
+				return meta
+			end
+		end
+		return nil
+	end
+
 	local function isMeleeWeapon(toolName)
 		if not toolName then return false end
 		local lower = toolName:lower()
 		if lower:find('frosty_hammer') or lower:find('tinker') or lower:find('chainsaw') or lower:find('sword') or lower:find('blade') or lower:find('scythe') or lower:find('dagger') or lower:find('hammer') or lower:find('axe') then
 			return true
 		end
-		local meta = bedwars.ItemMeta and bedwars.ItemMeta[toolName]
+		local meta = findItemMeta(toolName)
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
@@ -7320,7 +7335,7 @@ run(function()
 		if not sword or not sword.tool then return false end
 
 		local itemMeta = bedwars.ItemMeta
-		local meta = itemMeta and itemMeta[sword.tool.Name]
+		local meta = itemMeta and (itemMeta[sword.tool.Name] or findItemMeta(sword.tool.Name))
 		if not meta then return false end
 
 		if Limit and Limit.Enabled then
@@ -13565,7 +13580,7 @@ Run(function()
 	    end,
 	    Tooltip = "Shows the target's inventory under the card in tiles like the BedWars hotbar. The item they are holding is lifted like your selected slot, and the armor they are wearing is left out."
 	})
-	vape:Clean(TargetInfo.TargetChanged:Connect(function(Target)
+	vape:Clean(TargetInfo.TargetChanged.Event:Connect(function(Target)
 	    Refresh(Target)
 	end))
 end)
@@ -27299,7 +27314,7 @@ run(function()
 		Function = function(callback)		
 			if callback then		
 				local exp = bedwars.Client:WaitFor(remotes.FishFound):expect()
-				FishermanESP:Clean(exp:Connect(function(p24)
+				FishermanESP:Clean(connectSignal(exp, function(p24)
 					local scl = p24.dropData
 					if scl and scl.fishModel then
 						local ftype = tostring(scl.fishModel) or 'fish_iron'
