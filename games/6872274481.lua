@@ -8510,11 +8510,14 @@ run(function()
 
 		kaLastSend = srvNow
 		store.kaSent = (store.kaSent or 0) + 1
+		store.kaTrackChar = tchar
+		local trackHum = tchar:FindFirstChildOfClass('Humanoid')
+		store.kaTrackHP = trackHum and trackHum.Health or nil
 		store.kaSentWindow = store.kaSentWindow or {n = 0, t = srvNow}
 		if srvNow - store.kaSentWindow.t >= 5 then
 			local rate = store.kaSentWindow.n / (srvNow - store.kaSentWindow.t)
 			store.kaSentWindow = {n = 0, t = srvNow}
-			warn(('[Killaura] diag: %.1f sends/s period=%.3f ping=%s'):format(rate, kaPeriod, tostring(netPing and netPing() or '?')))
+			warn(('[Killaura] diag: %.1f sends/s hits=%d period=%.3f ping=%s'):format(rate, store.kaHits or 0, kaPeriod, tostring(netPing and netPing() or '?')))
 		end
 		store.kaSentWindow.n = store.kaSentWindow.n + 1
 		if kaLastSrv > 0 then
@@ -8558,6 +8561,18 @@ run(function()
 					end
 					animPeriod = NORMAL_SWORD_SWING_SPEED
 					updatePreciseClock()
+					local tc = store.kaTrackChar
+					if tc and tc.Parent then
+						local hum = tc:FindFirstChildOfClass('Humanoid')
+						local hp = hum and hum.Health
+						if hp and store.kaTrackHP and hp < store.kaTrackHP - 0.5 then
+							store.kaHits = (store.kaHits or 0) + 1
+						end
+						if hp then store.kaTrackHP = hp end
+					else
+						store.kaTrackChar = nil
+						store.kaTrackHP = nil
+					end
 				end)
 				if not updateOk and (tick() - lastAttemptFireError) >= 2 then
 					lastAttemptFireError = tick()
@@ -8606,6 +8621,10 @@ run(function()
 				lastAttackTime = 0
 				lastTargetTime = 0
 				lastAnimTime = 0
+				store.kaHits = 0
+				store.kaSent = 0
+				store.kaTrackChar = nil
+				store.kaTrackHP = nil
 				resetSwordCooldown()
 				preciseRemainder = 0
 				preciseTimestamp = tick()
