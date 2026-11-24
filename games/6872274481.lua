@@ -1409,9 +1409,26 @@ run(function()
 
 	local Flamework = require(replicatedStorage['rbxts_include']['node_modules']['@flamework'].core.out).Flamework or _missingModule
 	local InventoryUtil = require(replicatedStorage.TS.inventory['inventory-util']).InventoryUtil
+	local function pickField(mod, names, check)
+		if type(mod) ~= 'table' then return nil end
+		local function scan(t)
+			if type(t) ~= 'table' then return nil end
+			for _, k in names do
+				local v = t[k]
+				if v ~= nil and (not check or check(v)) then return v end
+			end
+		end
+		return scan(mod) or scan(mod.default) or scan(mod.default and mod.default.default)
+	end
 	local Client = (function()
 		local okC, res = pcall(function()
-			return require(replicatedStorage.TS.remotes).default.Client
+			local mod = require(replicatedStorage.TS.remotes)
+			local c = pickField(mod, {'Client', 'client', 'Remotes', 'RemoteClient'}, function(v)
+				return type(v) == 'table' and (type(v.Get) == 'function' or type(v.get) == 'function')
+			end)
+			if c == nil and type(mod) == 'table' and type(mod.Get) == 'function' then return mod end
+			if c == nil and type(mod.default) == 'table' and type(mod.default.Get) == 'function' then return mod.default end
+			return c
 		end)
 		return (okC and res) or _missingModule
 	end)()
@@ -1586,7 +1603,18 @@ run(function()
 		RuntimeLib = require(replicatedStorage['rbxts_include'].RuntimeLib),
 		SoundList = require(replicatedStorage.TS.sound['game-sound']).GameSound,
 		SoundManager = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).SoundManager,
-		Store = require(lplr.PlayerScripts.TS.ui.store).ClientStore,
+		Store = (function()
+			local okS, mod = pcall(function()
+				return require(lplr.PlayerScripts.TS.ui.store)
+			end)
+			if not okS or type(mod) ~= 'table' then return _missingModule end
+			local s = pickField(mod, {'ClientStore', 'Store', 'clientStore', 'Client'}, function(v)
+				return type(v) == 'table' and (type(v.getState) == 'function' or type(v.GetState) == 'function' or v.changed ~= nil)
+			end)
+			if s == nil and (type(mod.getState) == 'function' or mod.changed ~= nil) then return mod end
+			if s == nil and type(mod.default) == 'table' and (type(mod.default.getState) == 'function' or mod.default.changed ~= nil) then return mod.default end
+			return s or _missingModule
+		end)(),
 		TeamUpgradeMeta = (function()
 			local fn = require(replicatedStorage.TS.games.bedwars['team-upgrade']['team-upgrade-meta']).getTeamUpgradeMetaForQueue
 			if type(fn) ~= 'function' then return {} end
@@ -4941,7 +4969,14 @@ run(function()
 				return projectileAim.Namecall(...)
 			end
 			local remote = ...
-			if typeof(remote) ~= 'Instance' or remote.Name ~= 'ProjectileFire' then
+			if typeof(remote) ~= 'Instance' then
+				return projectileAim.Namecall(...)
+			end
+			local fireName = remotes and remotes.FireProjectile
+			local isFire = remote.Name == 'ProjectileFire'
+				or (type(fireName) == 'string' and remote.Name == fireName)
+				or remote.Name:find('ProjectileFire') ~= nil
+			if not isFire then
 				return projectileAim.Namecall(...)
 			end
 			local args = table.pack(select(2, ...))
