@@ -1546,7 +1546,39 @@ run(function()
 		MageKitUtil = require(replicatedStorage.TS.games.bedwars.kit.kits.mage['mage-kit-util']).MageKitUtil,
 		NametagController = _realCtrl('NametagController'),
 		PartyController = Flamework.resolveDependency("@easy-games/lobby:client/controllers/party-controller@PartyController"),
-		ProjectileMeta = require(replicatedStorage.TS.projectile['projectile-meta']).ProjectileMeta,
+		ProjectileMeta = (function()
+			local okM, mod = pcall(function()
+				return require(replicatedStorage.TS.projectile['projectile-meta'])
+			end)
+			local function looksLikeMeta(t)
+				if type(t) ~= 'table' then return false end
+				for _, e in pairs(t) do
+					if type(e) == 'table' and (e.launchVelocity ~= nil or e.gravitationalAcceleration ~= nil or e.combat ~= nil) then
+						return true
+					end
+				end
+				return false
+			end
+			if okM and type(mod) == 'table' then
+				for _, k in {'ProjectileMeta', 'projectileMeta', 'ProjectileMetadata', 'ProjectileMetaTable', 'Defaults', 'default'} do
+					local v = mod[k]
+					if type(v) == 'table' then
+						if k == 'default' and type(v.ProjectileMeta) == 'table' then return v.ProjectileMeta end
+						if looksLikeMeta(v) then return v end
+					end
+				end
+				for _, v in pairs(mod) do
+					if looksLikeMeta(v) then return v end
+				end
+			end
+			local fn = okM and mod and (mod.getProjectileMeta or mod.default and mod.default.getProjectileMeta)
+			if type(fn) ~= 'function' then return {} end
+			for i = 1, 15 do
+				local okU, _, v = pcall(debug.getupvalue, fn, i)
+				if okU and looksLikeMeta(v) then return v end
+			end
+			return {}
+		end)(),
 		QueryUtil = require(replicatedStorage['rbxts_include']['node_modules']['@easy-games']['game-core'].out).GameQueryUtil,
 		QueueCard = require(lplr.PlayerScripts.TS.controllers.global.queue.ui['queue-card']).QueueCard,
 		QueueMeta = require(replicatedStorage.TS.game['queue-meta']).QueueMeta,
