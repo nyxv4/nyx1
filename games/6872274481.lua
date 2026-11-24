@@ -1635,6 +1635,21 @@ run(function()
 
 	getgenv().bedwars = bedwars
 
+	do
+		local missing = getgenv().NYXMissingModule
+		local function stat(v)
+			if v == nil then return 'nil' end
+			if v == missing then return 'proxy' end
+			if type(v) == 'table' and next(v) ~= nil then return 'ok' end
+			return type(v)
+		end
+		warn('[NYX] bedwars: Client=' .. stat(bedwars.Client)
+			.. ' Store=' .. stat(bedwars.Store)
+			.. ' ItemMeta=' .. tostring(type(bedwars.ItemMeta) == 'table' and next(bedwars.ItemMeta) ~= nil)
+			.. ' ProjectileMeta=' .. tostring(type(bedwars.ProjectileMeta) == 'table' and next(bedwars.ProjectileMeta) ~= nil)
+			.. ' PC=' .. stat(bedwars.ProjectileController))
+	end
+
 	local function validRaycastResult(res)
 		if res == nil then return true end
 		local t = typeof(res)
