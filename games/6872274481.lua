@@ -1855,8 +1855,67 @@ run(function()
 
 	OldBreak = bedwars.BlockController.isBlockBreakable
 
+	local _netRemoteCache = {}
+	local function netRemoteInstance(name)
+		if type(name) ~= 'string' or name == '' then return nil end
+		if _netRemoteCache[name] ~= nil then return _netRemoteCache[name] or nil end
+		local found = nil
+		pcall(function()
+			local rs = game:GetService('ReplicatedStorage')
+			local roots = {}
+			local okNet, net = pcall(function()
+				return rs.rbxts_include.node_modules['@rbxts'].net.out._NetManaged
+			end)
+			if okNet and net then table.insert(roots, net) end
+			local okR, remotesFolder = pcall(function() return rs:FindFirstChild('Remotes') end)
+			if okR and remotesFolder then table.insert(roots, remotesFolder) end
+			for _, root in roots do
+				local direct = root:FindFirstChild(name)
+				if direct and (direct:IsA('RemoteEvent') or direct:IsA('UnreliableRemoteEvent') or direct:IsA('BindableEvent')) then
+					found = direct
+					break
+				end
+				for _, d in root:GetDescendants() do
+					if d.Name == name and (d:IsA('RemoteEvent') or d:IsA('UnreliableRemoteEvent')) then
+						found = d
+						break
+					end
+				end
+				if found then break end
+			end
+		end)
+		_netRemoteCache[name] = found or false
+		return found
+	end
+
+	local function wrapNetRemote(inst)
+		return {
+			instance = inst,
+			FireServer = function(_, ...) return inst:FireServer(...) end,
+			InvokeServer = function(_, ...) return inst:InvokeServer(...) end,
+			SendToServer = function(_, ...) return inst:FireServer(...) end,
+			CallServerAsync = function(_, ...) return inst:InvokeServer(...) end,
+		}
+	end
+
+	local _missingProxy = getgenv().NYXMissingModule
 	Client.Get = function(self, remoteName, ...)
-		local call = OldGet(self, remoteName, ...)
+		local okGet, call = pcall(OldGet, self, remoteName, ...)
+		local usable = okGet and type(call) == 'table' and call ~= _missingProxy
+			and (type(call.SendToServer) == 'function'
+				or type(call.FireServer) == 'function'
+				or type(call.InvokeServer) == 'function'
+				or type(call.CallServerAsync) == 'function')
+		if not usable then
+			local inst = netRemoteInstance(remoteName)
+			call = inst and wrapNetRemote(inst) or {
+				instance = nil,
+				FireServer = function() end,
+				InvokeServer = function() end,
+				SendToServer = function() end,
+				CallServerAsync = function() end,
+			}
+		end
 
 		if remoteName == 'SwordHit' or remoteName == remotes.AttackEntity then
 			return {
