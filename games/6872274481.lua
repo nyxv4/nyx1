@@ -1594,17 +1594,6 @@ run(function()
 		DestroyPetrifiedPlayer = 'DestroyPetrifiedPlayer',
 		UseAbility = 'useAbility',
 		FishFound = 'FishFound',
-		GroundHit = 'GroundHit',
-		GuitarHeal = 'PlayGuitar',
-		DropItem = 'DropItem',
-		CannonAim = 'AimCannon',
-		CannonLaunch = 'LaunchSelfFromCannon',
-		BeePickup = 'PickUpBee',
-		DragonFly = 'DragonFlap',
-		DragonEndFly = 'DragonFlap',
-		SummonerClawAttack = 'SummonerClawAttackRequest',
-		ConsumeSoul = 'ConsumeGrimReaperSoul',
-		PickupItem = 'PickupItemDrop',
 	}
 
 	for k, v in pairs(preDumped) do
@@ -1625,9 +1614,6 @@ run(function()
 		end
 
 		if remote == '' or remote == nil then
-			if not preDumped[i] then
-				notif('NYX', 'Failed to grab remote ('..tostring(i)..')', 10, 'alert')
-			end
 			remote = preDumped[i] or ''
 		end
 		remotes[i] = remote
