@@ -1635,8 +1635,18 @@ run(function()
 
 	getgenv().bedwars = bedwars
 
+	local function validRaycastResult(res)
+		if res == nil then return true end
+		local t = typeof(res)
+		if t == 'RaycastResult' then return true end
+		return type(res) == 'table' and typeof(res.Position) == 'Vector3'
+	end
 	prediction.Raycast = function(origin, direction, params)
-		return bedwars.QueryUtil:raycast(origin, direction, params)
+		local ok, res = pcall(function()
+			return bedwars.QueryUtil:raycast(origin, direction, params)
+		end)
+		if ok and validRaycastResult(res) then return res end
+		return workspace:Raycast(origin, direction, params)
 	end
 
 	task.spawn(function()
