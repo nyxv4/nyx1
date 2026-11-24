@@ -1359,8 +1359,14 @@ run(function()
 		task.wait()
 	until KnitInit
 
-	if not debug.getupvalue(Knit.Start, 1) then
-		repeat task.wait() until debug.getupvalue(Knit.Start, 1)
+	local function knitStartReady()
+		if type(Knit.Start) ~= 'function' then return false end
+		local ok, v = pcall(debug.getupvalue, Knit.Start, 1)
+		return ok and v ~= nil
+	end
+	if not knitStartReady() then
+		local knitWaitStart = os.clock()
+		repeat task.wait() until knitStartReady() or os.clock() - knitWaitStart > 10
 	end
 
 	-- A single stale require path must not zero the whole bedwars table: hand
@@ -1371,9 +1377,17 @@ run(function()
 		__call = function() return _missingModule end,
 	})
 	local _realRequire = require
+	local _warnedReq = {}
 	local require = function(module, ...)
 		local ok, res = pcall(_realRequire, module, ...)
-		return ok and res or _missingModule
+		if ok then return res end
+		local okN, name = pcall(function() return module:GetFullName() end)
+		local key = okN and name or tostring(module)
+		if not _warnedReq[key] then
+			_warnedReq[key] = true
+			warn('[NYX] bedwars require failed: ' .. key .. ' -> ' .. tostring(res))
+		end
+		return _missingModule
 	end
 
 	-- Missing knit controllers get the same inert proxy as missing modules so a
