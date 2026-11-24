@@ -1594,6 +1594,17 @@ run(function()
 		DestroyPetrifiedPlayer = 'DestroyPetrifiedPlayer',
 		UseAbility = 'useAbility',
 		FishFound = 'FishFound',
+		GroundHit = 'GroundHit',
+		GuitarHeal = 'PlayGuitar',
+		DropItem = 'DropItem',
+		CannonAim = 'AimCannon',
+		CannonLaunch = 'LaunchSelfFromCannon',
+		BeePickup = 'PickUpBee',
+		DragonFly = 'DragonFlap',
+		DragonEndFly = 'DragonFlap',
+		SummonerClawAttack = 'SummonerClawAttackRequest',
+		ConsumeSoul = 'ConsumeGrimReaperSoul',
+		PickupItem = 'PickupItemDrop',
 	}
 
 	for k, v in pairs(preDumped) do
