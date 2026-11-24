@@ -746,7 +746,6 @@ local function projectileToolName(name)
 	return n:find('bow') ~= nil or n:find('headhunter') ~= nil or n:find('snowball') ~= nil
 		or n:find('fireball') ~= nil or n:find('gloop') ~= nil or n:find('glue') ~= nil
 		or n:find('chakram') ~= nil or n:find('slingshot') ~= nil
-		or n:find('pearl') ~= nil or n:find('throwing') ~= nil
 end
 
 local function isProjectileTool(tool)
@@ -1590,25 +1589,10 @@ run(function()
 				end
 			end
 			local fn = okM and mod and (mod.getProjectileMeta or mod.default and mod.default.getProjectileMeta)
-			if type(fn) == 'function' then
-				for i = 1, 15 do
-					local okU, _, v = pcall(debug.getupvalue, fn, i)
-					if okU and looksLikeMeta(v) then return v end
-				end
-			end
-			-- Last resort: the ProjectileController's own methods close over the meta
-			-- table, so scan their upvalues when the module path itself went stale.
-			local ctrl = _realCtrl('ProjectileController')
-			if type(ctrl) == 'table' then
-				for _, m in {'launchProjectileWithValues', 'calculateImportantLaunchValues', 'getProjectileMeta', 'fireProjectile', 'launchProjectile'} do
-					local f = ctrl[m]
-					if type(f) == 'function' then
-						for i = 1, 25 do
-							local okU, _, v = pcall(debug.getupvalue, f, i)
-							if okU and looksLikeMeta(v) then return v end
-						end
-					end
-				end
+			if type(fn) ~= 'function' then return {} end
+			for i = 1, 15 do
+				local okU, _, v = pcall(debug.getupvalue, fn, i)
+				if okU and looksLikeMeta(v) then return v end
 			end
 			return {}
 		end)(),
@@ -1900,18 +1884,14 @@ run(function()
 			if okNet and net then table.insert(roots, net) end
 			local okR, remotesFolder = pcall(function() return rs:FindFirstChild('Remotes') end)
 			if okR and remotesFolder then table.insert(roots, remotesFolder) end
-			local function isRemote(d)
-				return d:IsA('RemoteEvent') or d:IsA('UnreliableRemoteEvent')
-					or d:IsA('RemoteFunction') or d:IsA('BindableEvent') or d:IsA('BindableFunction')
-			end
 			for _, root in roots do
 				local direct = root:FindFirstChild(name)
-				if direct and isRemote(direct) then
+				if direct and (direct:IsA('RemoteEvent') or direct:IsA('UnreliableRemoteEvent') or direct:IsA('BindableEvent')) then
 					found = direct
 					break
 				end
 				for _, d in root:GetDescendants() do
-					if d.Name == name and isRemote(d) then
+					if d.Name == name and (d:IsA('RemoteEvent') or d:IsA('UnreliableRemoteEvent')) then
 						found = d
 						break
 					end
@@ -5034,10 +5014,6 @@ run(function()
 		if solver then
 			ok, velocity = pcall(solver, prepared)
 		end
-		if not ok and velocity and (now - (projectileAim.errAt or 0)) > 5 then
-			projectileAim.errAt = now
-			warn('[NYX] projectile solver error (' .. tostring(mode) .. '): ' .. tostring(velocity))
-		end
 		local aimed = ok and typeof(velocity) == 'Vector3' and velocity.Magnitude > 0
 		entry = {Type = args[3], Side = side, At = now, Velocity = aimed and velocity or nil, Data = aimed and prepared[8] or nil}
 		projectileAim.Shots[id] = entry
@@ -5081,10 +5057,9 @@ run(function()
 				return projectileAim.Namecall(...)
 			end
 			local fireName = remotes and remotes.FireProjectile
-			local lowered = remote.Name:lower()
 			local isFire = remote.Name == 'ProjectileFire'
 				or (type(fireName) == 'string' and remote.Name == fireName)
-				or (lowered:find('projectile') ~= nil and lowered:find('fire') ~= nil)
+				or remote.Name:find('ProjectileFire') ~= nil
 			if not isFire then
 				return projectileAim.Namecall(...)
 			end
@@ -5096,25 +5071,6 @@ run(function()
 			end
 			return projectileAim.Namecall(remote, table.unpack(args, 1, args.n))
 		end))
-	end
-
-	-- The controller can still be loading when a module enables; keep retrying
-	-- the local-projectile hook instead of missing it for the whole session.
-	if not projectileAim.Local and not projectileAim.retrying then
-		projectileAim.retrying = true
-		task.spawn(function()
-			local deadline = tick() + 30
-			repeat
-				task.wait(0.5)
-				if not projectileAim.Active then break end
-				local c = bedwars.ProjectileController
-				if c and type(c.createLocalProjectile) == 'function' and not projectileAim.Local then
-					projectileAim.Local = c.createLocalProjectile
-					c.createLocalProjectile = localProjectile
-				end
-			until projectileAim.Local or tick() > deadline
-			projectileAim.retrying = false
-		end)
 	end
 
 	vape:Clean(function()
