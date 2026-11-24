@@ -41,7 +41,7 @@ if type(args) == "table" and args.Closet then
 	getgenv().Closet = true
 else
 	if getgenv().Closet == nil then
-		getgenv().Closet = false
+		getgenv().Closet = true
 	end
 end
 
