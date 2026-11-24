@@ -6968,8 +6968,8 @@ run(function()
 
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
-		SafeSpacing  = 0.295, -- Stealth Mode delay
-		HighSpacing  = 0.2855, -- spacing used by the Legit Only/Consistent calculation
+		SafeSpacing  = 0.295, -- High Hitreg Mode delay
+		HighSpacing  = 0.2855, -- spacing used by the Legit Hitreg/Consistent calculation
 		HitFloor     = 0.292, -- the server's minimum allowed time between hits. Going below this will cause ghost hits.
 		GapFloor     = 0.2945, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
@@ -6984,15 +6984,15 @@ run(function()
 		[0.6]  = 0.63,
 	}
 
-	-- HighMode: 'Stealth Mode' | 'Consistent Stealth Mode' | 'Legit Only'
-	-- DynamicDelay: slider value (1-100) only used when HighMode == 'Legit Only'
+	-- HighMode: 'High Hitreg Mode' | 'Consistent Mode' | 'Legit Hitreg Mode'
+	-- DynamicDelay: slider value (1-100) only used when HighMode == 'Legit Hitreg Mode'
 	function SwordTiming.Calculate(Speed, HighMode, DynamicDelay, Budget, Hits)
-		HighMode = ({['Advanced Mode'] = 'Consistent Stealth Mode', ['Dynamic'] = 'Legit Only'})[HighMode] or HighMode
+		HighMode = ({['Stealth Mode'] = 'High Hitreg Mode', ['Advanced Mode'] = 'Consistent Mode', ['Consistent Stealth Mode'] = 'Consistent Mode', ['Dynamic'] = 'Legit Hitreg Mode', ['Legit Only'] = 'Legit Hitreg Mode'})[HighMode] or HighMode
 		local Stock = Speed == 0.3
-		local Normal = (HighMode == 'Consistent Stealth Mode' or HighMode == 'Legit Only') and SwordTiming.HighSpacing or SwordTiming.SafeSpacing
+		local Normal = (HighMode == 'Consistent Mode' or HighMode == 'Legit Hitreg Mode') and SwordTiming.HighSpacing or SwordTiming.SafeSpacing
 		local Spacing = Stock and Normal or WeaponSpacing[Speed] or Speed + 0.03
 
-		if HighMode == 'Legit Only' and DynamicDelay then
+		if HighMode == 'Legit Hitreg Mode' and DynamicDelay then
 			Spacing = math.max(Spacing * (DynamicDelay / 100), Budget or 0)
 		end
 
@@ -7000,7 +7000,7 @@ run(function()
 		Spacing = math.max(Spacing, Budget or 0)
 		local Scale = Spacing / (Stock and Normal or SwordTiming.SafeSpacing)
 		local Gap = (Scale < 1 and SwordTiming.GapFloor or SwordTiming.HitFloor) * Scale
-		if Stock and (HighMode == 'Consistent Stealth Mode' or HighMode == 'Legit Only') then
+		if Stock and (HighMode == 'Consistent Mode' or HighMode == 'Legit Hitreg Mode') then
 			Gap = math.max(Gap, SwordTiming.GapFloor, Budget or 0)
 		end
 		return Spacing, Scale, Gap, math.max(Speed - SwordTiming.CooldownCorrection, 0), Stock
@@ -7045,14 +7045,15 @@ run(function()
 
 	-- The server, not the client, caps how often a hit lands. Retrying faster than that cap costs
 	-- nothing and makes a late frame harmless, while a gap that lands just outside a window costs a
-	-- whole period. This is the Stealth/Legit Only mapping the consistent build used.
+	-- whole period. This is the High Hitreg/Legit Hitreg mapping the consistent build used.
 	function SwordTiming.resolvePeriod(meta)
-		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
+		local mode = (HitregMode and HitregMode.Value) or 'High Hitreg Mode'
+		mode = ({['Stealth Mode'] = 'High Hitreg Mode', ['Advanced Mode'] = 'Consistent Mode', ['Consistent Stealth Mode'] = 'Consistent Mode', ['Dynamic'] = 'Legit Hitreg Mode', ['Legit Only'] = 'Legit Hitreg Mode'})[mode] or mode
 		local speed = (meta and meta.sword and meta.sword.attackSpeed) or 0.3
 		local delay
-		if mode == 'Legit Only' or mode == 'Dynamic' then
+		if mode == 'Legit Hitreg Mode' then
 			delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
-		elseif mode == 'Consistent Stealth Mode' or mode == 'Advanced Mode' then
+		elseif mode == 'Consistent Mode' then
 			delay = 49.55
 		else
 			delay = 50
@@ -8799,8 +8800,8 @@ run(function()
 
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
-		SafeSpacing  = 0.295, -- Stealth Mode delay
-		HighSpacing  = 0.2855, -- spacing in each hits for Consistent Stealth Mode only
+		SafeSpacing  = 0.295, -- High Hitreg Mode delay
+		HighSpacing  = 0.2855, -- spacing in each hits for Consistent Mode only
 		HitFloor     = 0.292, --  he server's minimum allowed time between hits. Going below this will cause ghost hits.
 		GapFloor     = 0.2945, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
@@ -8815,15 +8816,15 @@ run(function()
 		[0.6]  = 0.63,
 	}
 
-	-- HighMode: 'Stealth Mode' | 'Consistent Stealth Mode' | 'Legit Only'
-	-- DynamicDelay: slider value (1-100) only used when HighMode == 'Legit Only'
+	-- HighMode: 'High Hitreg Mode' | 'Consistent Mode' | 'Legit Hitreg Mode'
+	-- DynamicDelay: slider value (1-100) only used when HighMode == 'Legit Hitreg Mode'
 	function SwordTiming.Calculate(Speed, HighMode, DynamicDelay, Budget, Hits)
-		HighMode = ({['Advanced Mode'] = 'Consistent Stealth Mode', ['Dynamic'] = 'Legit Only'})[HighMode] or HighMode
+		HighMode = ({['Stealth Mode'] = 'High Hitreg Mode', ['Advanced Mode'] = 'Consistent Mode', ['Consistent Stealth Mode'] = 'Consistent Mode', ['Dynamic'] = 'Legit Hitreg Mode', ['Legit Only'] = 'Legit Hitreg Mode'})[HighMode] or HighMode
 		local Stock = Speed == 0.3
-		local Normal = (HighMode == 'Consistent Stealth Mode' or HighMode == 'Legit Only') and SwordTiming.HighSpacing or SwordTiming.SafeSpacing
+		local Normal = (HighMode == 'Consistent Mode' or HighMode == 'Legit Hitreg Mode') and SwordTiming.HighSpacing or SwordTiming.SafeSpacing
 		local Spacing = Stock and Normal or WeaponSpacing[Speed] or Speed + 0.03
 
-		if HighMode == 'Legit Only' and DynamicDelay then
+		if HighMode == 'Legit Hitreg Mode' and DynamicDelay then
 			Spacing = math.max(Spacing * (DynamicDelay / 100), Budget or 0)
 		end
 
@@ -8831,7 +8832,7 @@ run(function()
 		Spacing = math.max(Spacing, Budget or 0)
 		local Scale = Spacing / (Stock and Normal or SwordTiming.SafeSpacing)
 		local Gap = (Scale < 1 and SwordTiming.GapFloor or SwordTiming.HitFloor) * Scale
-		if Stock and (HighMode == 'Consistent Stealth Mode' or HighMode == 'Legit Only') then
+		if Stock and (HighMode == 'Consistent Mode' or HighMode == 'Legit Hitreg Mode') then
 			Gap = math.max(Gap, SwordTiming.GapFloor, Budget or 0)
 		end
 		return Spacing, Scale, Gap, math.max(Speed - SwordTiming.CooldownCorrection, 0), Stock
@@ -8875,17 +8876,18 @@ run(function()
 	end
 
 	local function getAttackDelay(meta)
-		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
+		local mode = (HitregMode and HitregMode.Value) or 'High Hitreg Mode'
+		mode = ({['Stealth Mode'] = 'High Hitreg Mode', ['Advanced Mode'] = 'Consistent Mode', ['Consistent Stealth Mode'] = 'Consistent Mode', ['Dynamic'] = 'Legit Hitreg Mode', ['Legit Only'] = 'Legit Hitreg Mode'})[mode] or mode
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
 		local Budget = 0
 		local Hits = 35
 		
-		-- Consistent Stealth Mode: 49.55, Stealth Mode: 50, Legit Only: slider value
+		-- Consistent Mode: 49.55, High Hitreg Mode: 50, Legit Hitreg Mode: slider value
 		local effectiveDelay
-		if mode == 'Legit Only' or mode == 'Dynamic' then
+		if mode == 'Legit Hitreg Mode' then
 			effectiveDelay = dynDelay
-		elseif mode == 'Consistent Stealth Mode' or mode == 'Advanced Mode' then
+		elseif mode == 'Consistent Mode' then
 			effectiveDelay = 49.55
 		else
 			effectiveDelay = 50
@@ -10733,11 +10735,11 @@ run(function()
 
 	HitregMode = Killaura:CreateDropdown({
 		Name = 'Hitreg Mode',
-		List = {'Stealth Mode', 'Consistent Stealth Mode', 'Legit Only'},
-		Default = 'Stealth Mode',
+		List = {'High Hitreg Mode', 'Consistent Mode', 'Legit Hitreg Mode'},
+		Default = 'High Hitreg Mode',
 		Function = function(val)
 			if DynamicDelaySlider and DynamicDelaySlider.Object then
-				DynamicDelaySlider.Object.Visible = (val == 'Legit Only' or val == 'Dynamic')
+				DynamicDelaySlider.Object.Visible = (val == 'Legit Hitreg Mode' or val == 'Legit Only' or val == 'Dynamic')
 			end
 		end
 	})
